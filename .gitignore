@@ -1,0 +1,16 @@
+# Carpetas de Visual Studio
+.vs/
+*.user
+*.suo
+
+# Build outputs (de cualquier proyecto .NET)
+bin/
+obj/
+
+# Otros temporales
+*.logWeb Service.zip
+
+# Comprimidos
+*.zip
+*.rar
+*.7zip

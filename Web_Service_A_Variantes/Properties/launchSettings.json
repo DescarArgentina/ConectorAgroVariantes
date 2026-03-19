@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Web_Service_A_Variantes": {
+      "commandName": "Project",
+      "commandLineArgs": "D:\\AgroConector\\test D:\\AgroConector\\test\\MBOM_Procesada D:\\AgroConector\\test\\BOP_Pendientes D:\\AgroConector\\test\\BOP_Procesadas"
+    }
+  }
+}

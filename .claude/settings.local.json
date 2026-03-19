@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l \"D:\\\\AgroConector\\\\WebService_Variantes\\\\WebService_Agrometal_Variantes\\\\Export_MBOM_Protheus _ M085506_A;1-KIT GRANO GRUESO POLIMERO 20_35 - 13_52 MAX3917.plmxml\")"
+    ]
+  }
+}
