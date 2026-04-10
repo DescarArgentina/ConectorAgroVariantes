@@ -300,8 +300,268 @@ namespace Web_Service
 			}
 		}
 
-		// ✅ Query original — CON WorkArea (ya está con Qty corregida)
-		private const string consultaSG1_BOP_ConWorkArea = @"
+        // ✅ Query original — CON WorkArea (ya está con Qty corregida)
+        private static readonly string consultaSG1_BOP_Con1Workarea = @"
+        WITH FirstProcessName AS(
+    SELECT TOP (1)
+        CASE
+            WHEN LEN(p.catalogueId) != 8 THEN RIGHT(p.catalogueId, LEN(p.catalogueId) - 2)
+            ELSE RIGHT(p.catalogueId, 6)
+        END AS first_process_name
+    FROM Process p
+    LEFT JOIN ProcessRevision pr
+        ON pr.masterRef = p.id_Table
+    LEFT JOIN ProcessOccurrence po
+        ON pr.id_Table = po.instancedRef
+    WHERE po.parentRef IS NULL
+),
+ValidChildren AS(
+    SELECT
+        po.id_Table AS PR_OccId,
+        CASE
+            WHEN LEFT(prod.productId, 1) IN('M','E')
+                THEN RIGHT(prod.productId, LEN(prod.productId) - 1)
+            WHEN RIGHT(prod.productId, 3) = '-FV'
+                THEN LEFT(prod.productId, LEN(prod.productId) - 3)
+            ELSE prod.productId
+        END AS Codigo,
+        prod_rev.subType AS subType,
+        CASE
+            WHEN prod.productId IS NULL THEN 0
+            WHEN ISNULL(qty_pick.QtyValue, 0) > 0 THEN qty_pick.QtyValue
+            ELSE 1
+        END AS Qty,
+        ISNULL(bl_pick.bl_formula_val, '') AS bl_formula,
+        CASE
+            WHEN ISNULL(bl_pick.bl_formula_val, '') != ''
+             AND CHARINDEX('[''', bl_pick.bl_formula_val) > 0
+             AND CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val)) > 0
+            THEN SUBSTRING(
+                    bl_pick.bl_formula_val,
+                    CHARINDEX('[''', bl_pick.bl_formula_val) + 2,
+                    CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val))
+                      - CHARINDEX('[''', bl_pick.bl_formula_val) - 2)
+            ELSE ''
+        END AS idContext
+    FROM Process p
+    LEFT JOIN ProcessRevision pr
+        ON pr.masterRef = p.id_Table
+    LEFT JOIN ProcessOccurrence po
+        ON po.instancedRef = pr.id_Table
+    LEFT JOIN ProcessOccurrence po_op
+        ON po_op.parentRef = po.id_Table
+    LEFT JOIN Occurrence o
+        ON (
+            o.parentRef = po.id_Table
+            OR o.parentRef = po_op.id_Table
+        )
+        AND ISNULL(o.subType,'') <> 'METool'
+    LEFT JOIN ProductRevision prod_rev
+        ON prod_rev.id_Table = o.instancedRef
+    LEFT JOIN Product prod
+        ON prod.id_Table = prod_rev.masterRef
+    OUTER APPLY (
+        SELECT TOP (1) q.QtyValue
+        FROM(
+            SELECT
+                TRY_CONVERT(FLOAT, REPLACE(NULLIF(LTRIM(RTRIM(uvO.value)), ''), ',', '.')) AS QtyValue,
+                1 AS prio
+            FROM UserValue_Occurrence uvO
+            WHERE uvO.id_Father = o.id_Table
+              AND uvO.title IN ('Quantity','quantity')
+
+            UNION ALL
+
+            SELECT
+                TRY_CONVERT(FLOAT, REPLACE(NULLIF(LTRIM(RTRIM(uvUD.value)), ''), ',', '.')) AS QtyValue,
+                2 AS prio
+            FROM UserData ud
+            JOIN UserValue_UserData uvUD
+                ON uvUD.id_Father = ud.id_Table
+               AND uvUD.title IN ('Quantity','quantity')
+            WHERE ud.id_Father = o.id_Table
+
+            UNION ALL
+
+            SELECT
+                TRY_CONVERT(FLOAT, REPLACE(NULLIF(LTRIM(RTRIM(uvUD2.value)), ''), ',', '.')) AS QtyValue,
+                3 AS prio
+            FROM UserValue_UserData uvUD2
+            WHERE uvUD2.id_Father = o.id_Table + 2
+              AND uvUD2.title IN ('Quantity','quantity')
+
+        ) q
+        WHERE q.QtyValue IS NOT NULL
+        ORDER BY q.prio
+    ) qty_pick
+    OUTER APPLY (
+        SELECT TOP 1 uvo.value AS bl_formula_val
+        FROM Occurrence o_formula
+        INNER JOIN UserValue_Occurrence uvo
+            ON uvo.id_Father = o_formula.id_Table
+           AND uvo.title = 'bl_formula'
+        WHERE o_formula.instancedRef = o.instancedRef
+          AND uvo.value IS NOT NULL
+          AND LTRIM(RTRIM(uvo.value)) != ''
+    ) bl_pick
+    WHERE
+        prod.productId IS NOT NULL
+        AND NOT(
+            prod_rev.subType IN ('Mfg0MEFactoryToolRevision', 'Mfg0MEResourceRevision')
+            OR
+            (
+                prod_rev.subType IN ('Agm4_MatPrimaRevision','Agm4_RepCompradoRevision')
+                AND ISNULL(qty_pick.QtyValue, 0) <= 0
+            )
+        )
+)
+SELECT
+    fpn.first_process_name AS Process_codigo,
+    prcodet.PR_Codigo_Protheus AS PR_Codigo,
+    vc.Codigo AS Codigo,
+    SUM(ISNULL(vc.Qty, 0)) AS Cantidad,
+    vc.subType AS subType,
+    seq_pick.SeqValue AS num_busqueda,
+    wa_pick.WorkArea_CatalogueId,
+    wa_pick.WorkArea_Nombre,
+    wa_pick.WorkArea_Revision,
+    MAX(vc.bl_formula) AS bl_formula,
+    MAX(vc.idContext) AS idContext
+FROM Process p
+LEFT JOIN ProcessRevision pr
+    ON pr.masterRef = p.id_Table
+LEFT JOIN ProcessOccurrence po
+    ON po.instancedRef = pr.id_Table
+OUTER APPLY (
+    SELECT TOP (1)
+        wa2.catalogueId AS WorkArea_CatalogueId,
+        wa2.name AS WorkArea_Nombre,
+        war2.revision AS WorkArea_Revision
+    FROM(
+        SELECT po.id_Table AS ParentRef
+        UNION ALL
+        SELECT po_op2.id_Table
+        FROM ProcessOccurrence po_op2
+        WHERE po_op2.parentRef = po.id_Table
+          AND po_op2.idXml = po.idXml
+    ) prf
+    JOIN Occurrence owa
+        ON owa.parentRef = prf.ParentRef
+       AND owa.idXml = po.idXml
+       AND owa.subType IN ('MEWorkarea','MEWorkArea')
+    JOIN WorkAreaRevision war2
+        ON war2.id_Table = owa.instancedRef
+       AND war2.idXml = owa.idXml
+    JOIN WorkArea wa2
+        ON wa2.id_Table = war2.masterRef
+       AND wa2.idXml = war2.idXml
+    ORDER BY
+        CASE WHEN wa2.name LIKE '%TERCEROS%' THEN 0 ELSE 1 END,
+        owa.id_Table
+) wa_pick
+
+OUTER APPLY(
+    SELECT TOP (1) s.SeqValue
+    FROM(
+        SELECT
+            NULLIF(LTRIM(RTRIM(uvpo.value)), '') AS SeqValue,
+            1 AS prio
+        FROM UserValue_ProcessOccurrence uvpo
+        WHERE uvpo.id_Father = po.id_Table
+          AND uvpo.title IN ('SequenceNumber','sequencenumber','sequenceNumber')
+
+        UNION ALL
+
+        SELECT
+            NULLIF(LTRIM(RTRIM(uvpo2.value)), '') AS SeqValue,
+            2 AS prio
+        FROM UserValue_ProcessOccurrence uvpo2
+        WHERE uvpo2.id_Father = po.id_Table
+          AND uvpo2.title LIKE '%Sequence%'
+
+        UNION ALL
+
+        SELECT
+            NULLIF(LTRIM(RTRIM(uv.value)), '') AS SeqValue,
+            3 AS prio
+        FROM UserData ud
+        JOIN UserValue_UserData uv
+            ON uv.id_Father = ud.id_Table
+           AND uv.title IN ('SequenceNumber','sequencenumber')
+        WHERE ud.id_Father = po.id_Table
+
+        UNION ALL
+
+        SELECT
+            NULLIF(LTRIM(RTRIM(uv2.value)), '') AS SeqValue,
+            4 AS prio
+        FROM UserValue_UserData uv2
+        WHERE uv2.id_Father = po.id_Table + 2
+          AND uv2.title IN ('SequenceNumber','sequencenumber')
+
+        UNION ALL
+
+        SELECT
+            NULLIF(LTRIM(RTRIM(uv3.value)), '') AS SeqValue,
+            5 AS prio
+        FROM UserValue_UserData uv3
+        WHERE uv3.id_Father = po.id_Table
+          AND uv3.title IN ('SequenceNumber','sequencenumber')
+    ) s
+    WHERE s.SeqValue IS NOT NULL
+    ORDER BY s.prio
+) seq_pick
+
+CROSS APPLY(
+    SELECT
+        CASE
+            WHEN LEFT(p.catalogueId, 1) IN('M','E')
+                THEN RIGHT(p.catalogueId, LEN(p.catalogueId) - 1)
+            WHEN RIGHT(p.catalogueId, 3) = '-FV'
+                THEN LEFT(p.catalogueId, LEN(p.catalogueId) - 3)
+            WHEN LEFT(p.catalogueId, 2) = 'P-'
+                THEN RIGHT(p.catalogueId, LEN(p.catalogueId) - 2)
+            ELSE p.catalogueId
+        END AS PR_Codigo_Norm
+) prcode
+
+CROSS APPLY(
+    SELECT
+        CASE
+            WHEN prcode.PR_Codigo_Norm IS NOT NULL
+             AND LEFT(prcode.PR_Codigo_Norm, 2) = 'PR'
+             AND RIGHT(prcode.PR_Codigo_Norm, 1) <> 'T'
+             AND(
+                    wa_pick.WorkArea_CatalogueId = '000465'
+                 OR UPPER(LTRIM(RTRIM(wa_pick.WorkArea_Nombre))) = 'TERCEROS'
+                 OR UPPER(wa_pick.WorkArea_Nombre) LIKE '%TERCEROS%'
+             )
+            THEN prcode.PR_Codigo_Norm + 'T'
+            ELSE prcode.PR_Codigo_Norm
+        END AS PR_Codigo_Protheus
+) prcodet
+
+LEFT JOIN ValidChildren vc
+    ON vc.PR_OccId = po.id_Table
+CROSS JOIN FirstProcessName fpn
+WHERE
+    fpn.first_process_name<> prcode.PR_Codigo_Norm
+GROUP BY
+    fpn.first_process_name,
+    p.catalogueId,
+    prcodet.PR_Codigo_Protheus,
+    vc.Codigo,
+    vc.subType,
+    seq_pick.SeqValue,
+    wa_pick.WorkArea_CatalogueId,
+    wa_pick.WorkArea_Nombre,
+    wa_pick.WorkArea_Revision
+ORDER BY
+    TRY_CONVERT(INT, seq_pick.SeqValue) DESC,
+    TRY_CONVERT(INT, SUBSTRING(p.catalogueId, 4, LEN(p.catalogueId) - 3)) DESC";
+
+        // Placeholder temporal: después reemplazar por la query real para múltiples WorkAreas
+        private static readonly string consultaSG1_BOP_ConMasWorkareas = @"
 WITH FirstProcessName AS (
     SELECT TOP (1)
         CASE
@@ -330,7 +590,19 @@ ValidChildren AS (
             WHEN prod.productId IS NULL THEN 0
             WHEN ISNULL(qty_pick.QtyValue, 0) > 0 THEN qty_pick.QtyValue
             ELSE 1
-        END AS Qty
+        END AS Qty,
+        ISNULL(bl_pick.bl_formula_val, '') AS bl_formula,
+        CASE
+            WHEN ISNULL(bl_pick.bl_formula_val, '') != ''
+             AND CHARINDEX('[''', bl_pick.bl_formula_val) > 0
+             AND CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val)) > 0
+            THEN SUBSTRING(
+                    bl_pick.bl_formula_val,
+                    CHARINDEX('[''', bl_pick.bl_formula_val) + 2,
+                    CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val))
+                      - CHARINDEX('[''', bl_pick.bl_formula_val) - 2)
+            ELSE ''
+        END AS idContext
     FROM Process p
     LEFT JOIN ProcessRevision pr
         ON pr.masterRef = p.id_Table
@@ -382,6 +654,16 @@ ValidChildren AS (
         WHERE q.QtyValue IS NOT NULL
         ORDER BY q.prio
     ) qty_pick
+    OUTER APPLY (
+        SELECT TOP 1 uvo.value AS bl_formula_val
+        FROM Occurrence o_formula
+        INNER JOIN UserValue_Occurrence uvo
+            ON uvo.id_Father = o_formula.id_Table
+           AND uvo.title = 'bl_formula'
+        WHERE o_formula.instancedRef = o.instancedRef
+          AND uvo.value IS NOT NULL
+          AND LTRIM(RTRIM(uvo.value)) != ''
+    ) bl_pick
     WHERE
         prod.productId IS NOT NULL
         AND NOT (
@@ -402,7 +684,9 @@ SELECT
     seq_pick.SeqValue AS num_busqueda,
     wa_pick.WorkArea_CatalogueId,
     wa_pick.WorkArea_Nombre,
-    wa_pick.WorkArea_Revision
+    wa_pick.WorkArea_Revision,
+    MAX(vc.bl_formula) AS bl_formula,
+    MAX(vc.idContext) AS idContext
 FROM Process p
 LEFT JOIN ProcessRevision pr
     ON pr.masterRef = p.id_Table
@@ -421,7 +705,7 @@ OUTER APPLY (
         WHERE po_op2.parentRef = po.id_Table
           AND po_op2.idXml = po.idXml
     ) prf
-    JOIN Occurrence owa
+    JOIN WorkareaOccurrence owa
         ON owa.parentRef = prf.ParentRef
        AND owa.idXml = po.idXml
        AND owa.subType IN ('MEWorkarea','MEWorkArea')
@@ -536,9 +820,8 @@ ORDER BY
     TRY_CONVERT(INT, seq_pick.SeqValue) DESC,
     TRY_CONVERT(INT, SUBSTRING(p.catalogueId, 4, LEN(p.catalogueId) - 3)) DESC
 ";
-
-		// ✅ Query alternativa: SIN WorkArea (ya está con Qty corregida)
-		private const string consultaSG1_BOP_SinWorkArea = @"
+        // ✅ Query alternativa: SIN WorkArea (ya está con Qty corregida)
+        private const string consultaSG1_BOP_SinWorkArea = @"
 WITH FirstProcessName AS (
     SELECT TOP (1)
         CASE
@@ -709,7 +992,19 @@ ValidChildren AS (
             WHEN prod.productId IS NULL THEN 0
             WHEN ISNULL(qf.QtyValue, 0) > 0 THEN qf.QtyValue
             ELSE 1
-        END AS Qty
+        END AS Qty,
+        ISNULL(bl_pick.bl_formula_val, '') AS bl_formula,
+        CASE
+            WHEN ISNULL(bl_pick.bl_formula_val, '') != ''
+             AND CHARINDEX('[''', bl_pick.bl_formula_val) > 0
+             AND CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val)) > 0
+            THEN SUBSTRING(
+                    bl_pick.bl_formula_val,
+                    CHARINDEX('[''', bl_pick.bl_formula_val) + 2,
+                    CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val))
+                      - CHARINDEX('[''', bl_pick.bl_formula_val) - 2)
+            ELSE ''
+        END AS idContext
     FROM Process p
     LEFT JOIN ProcessRevision pr
         ON pr.masterRef = p.id_Table
@@ -737,6 +1032,16 @@ ValidChildren AS (
     LEFT JOIN Product prod
         ON prod.id_Table = prod_rev.masterRef
        AND prod.idXml = prod_rev.idXml
+    OUTER APPLY (
+        SELECT TOP 1 uvo.value AS bl_formula_val
+        FROM Occurrence o_formula
+        INNER JOIN UserValue_Occurrence uvo
+            ON uvo.id_Father = o_formula.id_Table
+           AND uvo.title = 'bl_formula'
+        WHERE o_formula.instancedRef = o.instancedRef
+          AND uvo.value IS NOT NULL
+          AND LTRIM(RTRIM(uvo.value)) != ''
+    ) bl_pick
     WHERE
         prod.productId IS NOT NULL
         AND prod_rev.subType NOT IN ('Mfg0MEResourceRevision', 'Mfg0MEFactoryToolRevision')
@@ -762,7 +1067,9 @@ SELECT
     sf.SeqValue AS num_busqueda,
     NULL AS WorkArea_CatalogueId,
     NULL AS WorkArea_Nombre,
-    NULL AS WorkArea_Revision
+    NULL AS WorkArea_Revision,
+    MAX(vc.bl_formula) AS bl_formula,
+    MAX(vc.idContext) AS idContext
 FROM Process p
 LEFT JOIN ProcessRevision pr
     ON pr.masterRef = p.id_Table
@@ -799,56 +1106,45 @@ ORDER BY
     TRY_CONVERT(INT, SUBSTRING(p.catalogueId, 4, LEN(p.catalogueId) - 3)) DESC;
 ";
 
-		private static string ObtenerConsultaSG1_BOP(SqlConnection connection)
-		{
-			bool existeWorkArea = false;
-			bool existeWorkAreaRevision = false;
-			bool hayMEWorkArea = false;
-			bool esWorkAreaNormal = false;
+        private static string ObtenerConsultaZG1_BOP(SqlConnection connection)
+        {
+            bool occurrenceTieneSubTypeMEWorkarea = false;
+            bool workAreaOccurrenceTieneSubType = false;
 
-			using (var cmd = new SqlCommand("SELECT OBJECT_ID('WorkArea', 'U');", connection))
-				existeWorkArea = cmd.ExecuteScalar() is not null and not DBNull;
+            using (var cmd = new SqlCommand(@"
+                IF COL_LENGTH('Occurrence','subType') IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM Occurrence WHERE subType = 'MEWorkarea'
+                )
+                SELECT 1;", connection))
+            {
+                occurrenceTieneSubTypeMEWorkarea = cmd.ExecuteScalar() is not null and not DBNull;
+            }
 
-			using (var cmd = new SqlCommand("SELECT OBJECT_ID('WorkAreaRevision', 'U');", connection))
-				existeWorkAreaRevision = cmd.ExecuteScalar() is not null and not DBNull;
+            if (occurrenceTieneSubTypeMEWorkarea)
+            {
+                Log("ZG1 -> ObtenerConsultaZG1_BOP: Occurrence.subType='MEWorkarea'. Se elige CON 1 WorkArea.");
+                return consultaSG1_BOP_Con1Workarea;
+            }
 
-			if (!existeWorkArea || !existeWorkAreaRevision)
-			{
-				Log($"SG1 -> ObtenerConsultaSG1_BOP: WorkArea={existeWorkArea}, WorkAreaRevision={existeWorkAreaRevision}. Se elige SIN WorkArea.");
-				return consultaSG1_BOP_SinWorkArea;
-			}
+            using (var cmd = new SqlCommand(@"
+                    SELECT 1
+                    WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
+            {
+                workAreaOccurrenceTieneSubType = cmd.ExecuteScalar() is not null and not DBNull;
+            }
 
-			using (var cmd = new SqlCommand(@"
-SELECT TOP 1 1
-FROM Occurrence o
-WHERE o.subType IN ('MEWorkArea','MEWorkarea');", connection))
-			{
-				hayMEWorkArea = cmd.ExecuteScalar() is not null and not DBNull;
-			}
+            if (workAreaOccurrenceTieneSubType)
+            {
+                Log("ZG1 -> ObtenerConsultaZG1_BOP: WorkAreaOccurrence tiene subType. Se elige CON MÁS WorkAreas.");
+                return consultaSG1_BOP_ConMasWorkareas;
+            }
 
-			if (!hayMEWorkArea)
-			{
-				Log("SG1 -> ObtenerConsultaSG1_BOP: No hay Occurrence MEWorkArea. Se elige SIN WorkArea.");
-				return consultaSG1_BOP_SinWorkArea;
-			}
+            Log("ZG1 -> ObtenerConsultaZG1_BOP: No se detecta subType en Occurrence ni en WorkAreaOccurrence. Se elige SIN WorkArea.");
+            return consultaSG1_BOP_SinWorkArea;
+        }
 
-			using (var cmd = new SqlCommand(@"
-SELECT TOP 1 1
-FROM Occurrence o
-JOIN WorkAreaRevision war ON war.id_Table = o.instancedRef
-WHERE o.subType IN ('MEWorkArea','MEWorkarea');", connection))
-			{
-				esWorkAreaNormal = cmd.ExecuteScalar() is not null and not DBNull;
-			}
-
-			Log(
-				$"SG1 -> ObtenerConsultaSG1_BOP: existeWA={existeWorkArea}, existeWAR={existeWorkAreaRevision}, hayMEWorkArea={hayMEWorkArea}, normal={esWorkAreaNormal}. " +
-				$"Query={(esWorkAreaNormal ? "CON WorkArea" : "SIN WorkArea")}");
-
-			return esWorkAreaNormal ? consultaSG1_BOP_ConWorkArea : consultaSG1_BOP_SinWorkArea;
-		}
-
-		public static async Task postSG1(
+        public static async Task postSG1(
 			Dictionary<string, List<List<Dictionary<string, string>>>> estructurasBopCompleta,
 			bool yaHizoResetGlobal = false)
 		{
@@ -913,48 +1209,128 @@ WHERE o.subType IN ('MEWorkArea','MEWorkarea');", connection))
 			return (codigo, estructura);
 		}
 
-		public static Dictionary<string, List<List<Dictionary<string, string>>>> jsonSG1_BOP()
+		public static List<string> jsonZG1_BOP()
 		{
 			//string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
 			string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+
+			Log("[ZG1-JSON][BOP] Iniciando generación de estructuras ZG1 desde BOP...");
+
+			var listaJsons = new List<string>();
 
 			string queryElegida;
 			using (var conn = new SqlConnection(connectionString))
 			{
 				conn.Open();
-				queryElegida = ObtenerConsultaSG1_BOP(conn);
+				queryElegida = ObtenerConsultaZG1_BOP(conn);
 			}
 
-			var converter = new SqlToJsonConverter(connectionString);
-			var products = converter.ConvertSqlToHierarchicalJsons(queryElegida);
-
-			var estructuras = new Dictionary<string, List<List<Dictionary<string, string>>>>();
-
-			foreach (var product in products)
+			try
 			{
-				var listaHijos = new List<List<Dictionary<string, string>>>();
-
-				foreach (var relacion in product.estructura)
+				using (SqlConnection connection = new SqlConnection(connectionString))
 				{
-					var bloque = new List<Dictionary<string, string>>();
+					connection.Open();
 
-					foreach (var c in relacion)
+					using (SqlCommand command = new SqlCommand(queryElegida, connection))
 					{
-						bloque.Add(new Dictionary<string, string>
+						command.CommandTimeout = 1200;
+
+						using (SqlDataReader reader = command.ExecuteReader())
 						{
-							{ "campo", c.campo ?? string.Empty },
-							{ "valor", c.valor ?? string.Empty }
-						});
+							// Agrupa filas por Process_codigo (padre)
+							var dataByParent = new Dictionary<string, List<(string Codigo, string Cantidad, string BlFormula, string IdContext)>>(StringComparer.OrdinalIgnoreCase);
+
+							int filasLeidas = 0;
+
+							while (reader.Read())
+							{
+								filasLeidas++;
+
+								string procesoCodigo = reader["Process_codigo"]?.ToString()?.Trim() ?? string.Empty;
+								string codigo        = reader["Codigo"]?.ToString()?.Trim()         ?? string.Empty;
+								string cantidad      = (reader["Cantidad"]?.ToString() ?? "1").Replace(',', '.');
+								string blFormula     = reader["bl_formula"]?.ToString()             ?? string.Empty;
+								string idContext     = reader["idContext"]?.ToString()               ?? string.Empty;
+
+								if (string.IsNullOrWhiteSpace(procesoCodigo) && string.IsNullOrWhiteSpace(codigo))
+								{
+									Log("[ZG1-JSON][BOP] WARNING: fila sin Process_codigo ni Codigo. Se omite.");
+									continue;
+								}
+
+								string padre = string.IsNullOrWhiteSpace(procesoCodigo) ? codigo : procesoCodigo;
+
+								if (!dataByParent.ContainsKey(padre))
+									dataByParent[padre] = new List<(string, string, string, string)>();
+
+								dataByParent[padre].Add((codigo, cantidad, blFormula, idContext));
+							}
+
+							Log($"[ZG1-JSON][BOP] SQL procesado. Filas leídas={filasLeidas} | Padres={dataByParent.Count}");
+
+							foreach (var parentGroup in dataByParent)
+							{
+								string codigoPadre = parentGroup.Key;
+								var hijos = parentGroup.Value;
+
+								// idContext se toma del primer hijo que lo tenga (misma lógica que MBOM ZG1)
+								string idContextFinal = hijos
+									.Select(h => h.IdContext)
+									.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c)) ?? string.Empty;
+
+								var estructuraJson = new System.Text.StringBuilder();
+								estructuraJson.Append("[");
+
+								bool primerHijo = true;
+								foreach (var hijo in hijos)
+								{
+									if (string.IsNullOrWhiteSpace(hijo.Codigo)) continue;
+
+									if (!primerHijo) estructuraJson.Append(",");
+									primerHijo = false;
+
+									string cantidadFmt = decimal.TryParse(hijo.Cantidad, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal cantDec)
+										? cantDec.ToString("G29", System.Globalization.CultureInfo.InvariantCulture)
+										: (hijo.Cantidad ?? "1");
+
+									estructuraJson.Append("[");
+									estructuraJson.Append($"{{\"campo\":\"codigo\",\"valor\":\"{EscapeJson(hijo.Codigo)}\"}}");
+									estructuraJson.Append($",{{\"campo\":\"cantidad\",\"valor\":\"{EscapeJson(cantidadFmt)}\"}}");
+
+									if (!string.IsNullOrWhiteSpace(hijo.BlFormula))
+										estructuraJson.Append($",{{\"campo\":\"formula\",\"valor\":\"{EscapeJson(hijo.BlFormula)}\"}}");
+
+									estructuraJson.Append("]");
+								}
+
+								estructuraJson.Append("]");
+
+								var estructura = JsonConvert.DeserializeObject<JArray>(estructuraJson.ToString());
+								var jsonPayload = new JObject
+								{
+									["producto"]   = codigoPadre,
+									["idContext"]  = idContextFinal,
+									["qtdBase"]    = "1",
+									["estructura"] = estructura
+								};
+								string jsonFinal = jsonPayload.ToString(Formatting.Indented);
+
+								listaJsons.Add(jsonFinal);
+								Log($"[ZG1-JSON][BOP] Padre {codigoPadre}: hijos={hijos.Count} | idContext={idContextFinal}");
+								LogJson($"[ZG1][BOP][JSON] Producto {codigoPadre}:", jsonFinal);
+							}
+						}
 					}
-
-					listaHijos.Add(bloque);
 				}
-
-				estructuras[product.producto] = listaHijos;
+			}
+			catch (Exception ex)
+			{
+				Log($"[ZG1-JSON][BOP] ERROR al consultar la base: {ex.Message}");
+				Log($"[ZG1-JSON][BOP] Stack trace: {ex.StackTrace}");
 			}
 
-			Log($"[SG1-JSON] Estructuras generadas para {estructuras.Count} productos.");
-			return estructuras;
+			Log($"[ZG1-JSON][BOP] Generación finalizada. JSONs generados: {listaJsons.Count}");
+			return listaJsons;
 		}
 
 		public static async Task putSG1(

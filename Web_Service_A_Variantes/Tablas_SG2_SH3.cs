@@ -32,8 +32,8 @@ namespace Web_Service
         // =========================
         // CONFIG PROTHEUS
         // =========================
-        private const string UrlPost = "http://119.8.73.193:8096/rest/TCProceso/Incluir/";
-        private const string UrlPut = "http://119.8.73.193:8096/rest/TCProceso/Modificar/";
+        private const string UrlPost = "http://119.8.73.193:8076/rest/TCProceso/Incluir/";
+        private const string UrlPut = "http://119.8.73.193:8076/rest/TCProceso/Modificar/";
 
         private const string Username = "USERREST";
         private const string Password = "restagr";
@@ -626,107 +626,116 @@ namespace Web_Service
 
         //Consulta con Workarea y recurso hijo
         private const string consultaD_workarea_recurso = @"SELECT
-    p.catalogueId   AS Padre,
-    p.name          AS descripcion,
-    wa.catalogueId  AS centroTrabajo,
-    prod.productId  AS recurso, 
-    op.catalogueId  AS Operacion,
-	ta.allocated_time_centesimal AS allocated_time_centesimal,
-    ROW_NUMBER() OVER (
-        PARTITION BY p.catalogueId, op.catalogueId, wa.catalogueId
-        ORDER BY prod.productId
-    ) AS nro_recurso
-FROM ProcessRevision        AS pr
-INNER JOIN Process                AS p   ON p.id_Table  = pr.masterRef
-INNER JOIN ProcessOccurrence      AS po  ON po.instancedRef = pr.id_Table
-
--- WorkArea
-INNER JOIN Occurrence             AS occ1 
-        ON occ1.parentRef = po.id_Table
-       AND occ1.subType   IN ('MEWorkArea','MEWorkarea')
-INNER JOIN WorkAreaRevision       AS war ON war.id_Table    = occ1.instancedRef
-INNER JOIN WorkArea               AS wa  ON wa.id_Table     = war.masterRef
-
--- Recursos hijos de la WorkArea (vía WorkAreaOccurrence)
-INNER JOIN WorkAreaOccurrence wao ON wao.instancedRef = war.id_Table
-INNER JOIN Occurrence occ2        ON occ2.parentRef   = wao.id_Table
-INNER JOIN ProductRevision prod_rev ON prod_rev.id_Table = occ2.instancedRef
-INNER JOIN Product prod             ON prod.id_Table     = prod_rev.masterRef
-
--- Operaciones
-LEFT JOIN ProcessOccurrence po_op 
-        ON po_op.parentRef = po.id_Table
-LEFT JOIN OperationRevision op_rev 
-        ON op_rev.id_Table = po_op.instancedRef
-LEFT JOIN Operation op 
-        ON op.id_Table = op_rev.masterRef
-
-OUTER APPLY (
-    SELECT TOP 1
-        uvud_time.value AS allocated_time_centesimal
-    FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
-    JOIN AssociatedAttachment aa
-       ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
-    JOIN Form f_time
-       ON f_time.id_Table = RIGHT(aa.attachmentRef, LEN(aa.attachmentRef) - 3)
-      AND f_time.subType = 'MEOpTimeAnalysis'
-    JOIN UserValue_UserData uvud_time
-       ON uvud_time.id_Father = f_time.id_Table + 1
-      AND uvud_time.title = 'allocated_time'
-) AS ta
-
-
-ORDER BY RIGHT(p.catalogueId, LEN(p.catalogueId) - 3) DESC;";
+            p.catalogueId AS Padre,
+            p.name AS descripcion,
+            wa.catalogueId AS centroTrabajo,
+            prod.productId AS recurso,
+            op.catalogueId AS Operacion,
+            ta.allocated_time_centesimal AS allocated_time_centesimal,
+            ROW_NUMBER() OVER (
+            PARTITION BY p.catalogueId, op.catalogueId, wa.catalogueId
+            ORDER BY prod.productId
+            ) AS nro_recurso
+            FROM ProcessRevision AS pr
+            INNER JOIN Process AS p
+            ON p.id_Table = pr.masterRef
+            INNER JOIN ProcessOccurrence AS po
+            ON po.instancedRef = pr.id_Table
+            INNER JOIN WorkAreaOccurrence AS occ1
+            ON occ1.parentRef = po.id_Table
+            AND occ1.subType IN ('MEWorkArea','MEWorkarea')
+            INNER JOIN WorkAreaRevision AS war
+            ON war.id_Table = occ1.instancedRef
+            INNER JOIN WorkArea AS wa
+            ON wa.id_Table = war.masterRef
+            INNER JOIN Occurrence AS occ2
+            ON occ2.parentRef = occ1.id_Table
+            INNER JOIN ProductRevision AS prod_rev
+            ON prod_rev.id_Table = occ2.instancedRef
+            INNER JOIN Product AS prod
+            ON prod.id_Table = prod_rev.masterRef
+            LEFT JOIN ProcessOccurrence AS po_op
+            ON po_op.parentRef = po.id_Table
+            LEFT JOIN OperationRevision AS op_rev
+            ON op_rev.id_Table = po_op.instancedRef
+            LEFT JOIN Operation AS op
+            ON op.id_Table = op_rev.masterRef
+            OUTER APPLY (
+            SELECT TOP 1
+            uvf.value AS allocated_time_centesimal
+            FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
+            INNER JOIN AssociatedAttachment aa
+            ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
+            AND aa.role = 'METimeAnalysisRelation'
+            INNER JOIN UserValue_Form uvf
+            ON uvf.id_Father = RIGHT(aa.attachmentRef, LEN(aa.attachmentRef) - 3)
+            AND uvf.title = 'allocated_time'
+            ) AS ta
+            ORDER BY RIGHT(p.catalogueId, LEN(p.catalogueId) - 3) DESC";
 
         //Consulta para los xml que vienen sin WorkAreaOccurrence
-        private const string ConsultaA_ConWorkArea_SinWAO = @"
-SELECT
-p.catalogueId AS Padre,
-p.name AS descripcion,
-wa.catalogueId AS centroTrabajo,
-prod.productId AS recurso,
-op.catalogueId AS Operacion,
-ta.allocated_time_centesimal AS allocated_time_centesimal,
-ROW_NUMBER() OVER (PARTITION BY p.catalogueId, op.catalogueId, wa.catalogueId ORDER BY prod.productId) AS nro_recurso
-FROM ProcessRevision AS pr
-INNER JOIN Process AS p ON p.id_Table = pr.masterRef
-INNER JOIN ProcessOccurrence AS po ON po.instancedRef = pr.id_Table
-INNER JOIN Occurrence AS occ1 ON occ1.parentRef = po.id_Table AND occ1.subType IN ('MEWorkArea','MEWorkarea')
-INNER JOIN WorkAreaRevision AS war ON war.id_Table = occ1.instancedRef
-INNER JOIN WorkArea AS wa ON wa.id_Table = war.masterRef
-INNER JOIN Occurrence occ2 ON occ2.parentRef = occ1.id_Table
-INNER JOIN ProductRevision prod_rev ON prod_rev.id_Table = occ2.instancedRef
-INNER JOIN Product prod ON prod.id_Table = prod_rev.masterRef
-LEFT JOIN ProcessOccurrence po_op ON po_op.parentRef = po.id_Table
-LEFT JOIN OperationRevision op_rev ON op_rev.id_Table = po_op.instancedRef
-LEFT JOIN Operation op ON op.id_Table = op_rev.masterRef
-OUTER APPLY (
-    SELECT TOP 1
-        uvf.value AS allocated_time_centesimal
-    FROM STRING_SPLIT(COALESCE(po_op.associatedAttachmentRefs, ''), ' ') s
-    CROSS APPLY (
-        SELECT TRY_CONVERT(BIGINT, REPLACE(REPLACE(LTRIM(RTRIM(s.value)),'#',''),'id','')) AS AttId
-    ) s2
-    INNER JOIN AssociatedAttachment aa
-        ON aa.id_Table = s2.AttId
-    CROSS APPLY (
-        SELECT TRY_CONVERT(BIGINT, REPLACE(REPLACE(CONCAT(aa.attachmentRef,''),'#',''),'id','')) AS FormId
-    ) a2
-    INNER JOIN Form f_time
-        ON f_time.id_Table = a2.FormId
-       AND f_time.subType = 'MEOpTimeAnalysis'
-    INNER JOIN UserValue_Form uvf
-        ON uvf.title = 'allocated_time'
-       AND uvf.idXml = f_time.idXml
-       AND (
-            TRY_CONVERT(BIGINT, CONCAT(uvf.id_Father,'')) = f_time.id_Table
-            OR TRY_CONVERT(BIGINT, CONCAT(uvf.id_Father,'')) = f_time.id_Table + 1
-            OR TRY_CONVERT(BIGINT, CONCAT(uvf.id_Table,'')) = f_time.id_Table
-       )
-) AS ta
-GROUP BY p.catalogueId, p.name, wa.catalogueId, prod.productId, op.catalogueId, ta.allocated_time_centesimal
-ORDER BY 
-TRY_CONVERT(INT, SUBSTRING(p.catalogueId, 4, LEN(p.catalogueId) - 3)) DESC
+       private const string ConsultaA_ConWorkArea_SinWAO = @"
+            SELECT
+                p.catalogueId   AS Padre,
+                p.name          AS descripcion,
+                wa.catalogueId  AS centroTrabajo,
+                prod.productId  AS recurso, 
+                op.catalogueId  AS Operacion,
+                ta.allocated_time_centesimal AS allocated_time_centesimal,
+                ROW_NUMBER() OVER (
+                    PARTITION BY p.catalogueId, op.catalogueId, wa.catalogueId
+                    ORDER BY prod.productId
+                ) AS nro_recurso
+            FROM ProcessRevision        AS pr
+            INNER JOIN Process                AS p   ON p.id_Table  = pr.masterRef
+            INNER JOIN ProcessOccurrence      AS po  ON po.instancedRef = pr.id_Table
+
+            -- WorkArea
+            INNER JOIN Occurrence             AS occ1 
+                    ON occ1.parentRef = po.id_Table
+                   AND occ1.subType   IN ('MEWorkArea','MEWorkarea')
+            INNER JOIN WorkAreaRevision       AS war ON war.id_Table    = occ1.instancedRef
+            INNER JOIN WorkArea               AS wa  ON wa.id_Table     = war.masterRef
+
+            -- Recursos: caso 1 (hijo directo de Occurrence MEWorkArea)
+            --         caso 2 (hijo de WorkAreaOccurrence con misma instancedRef)
+            CROSS APPLY (
+                SELECT o2.instancedRef AS res_instancedRef
+                FROM Occurrence o2
+                WHERE o2.parentRef = occ1.id_Table
+
+                UNION
+
+                SELECT o2.instancedRef
+                FROM WorkAreaOccurrence wao_r
+                INNER JOIN Occurrence o2 ON o2.parentRef = wao_r.id_Table
+                WHERE wao_r.instancedRef = occ1.instancedRef
+            ) rec
+            INNER JOIN ProductRevision prod_rev ON prod_rev.id_Table = rec.res_instancedRef
+            INNER JOIN Product prod             ON prod.id_Table     = prod_rev.masterRef
+
+            -- Operaciones
+            LEFT JOIN ProcessOccurrence po_op 
+                    ON po_op.parentRef = po.id_Table
+            LEFT JOIN OperationRevision op_rev 
+                    ON op_rev.id_Table = po_op.instancedRef
+            LEFT JOIN Operation op 
+                    ON op.id_Table = op_rev.masterRef
+
+            --  NUEVO CALCULO
+            OUTER APPLY (
+                SELECT TOP 1
+                    uvf.value AS allocated_time_centesimal
+                FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
+                INNER JOIN AssociatedAttachment aa 
+                    ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
+                   AND aa.role = 'METimeAnalysisRelation'
+                INNER JOIN UserValue_Form uvf 
+                    ON uvf.id_Father = RIGHT(aa.attachmentRef, LEN(aa.attachmentRef) - 3)
+                   AND uvf.title = 'allocated_time'
+            ) AS ta
+
+            ORDER BY RIGHT(p.catalogueId, LEN(p.catalogueId) - 3) DESC;
 ";
 
         //Consulta para los xml que vienen sin WorkArea
@@ -734,15 +743,16 @@ TRY_CONVERT(INT, SUBSTRING(p.catalogueId, 4, LEN(p.catalogueId) - 3)) DESC
 SELECT
     p.catalogueId   AS Padre,
     p.name          AS descripcion,
-    NULL            AS centroTrabajo,          -- no hay WA
-    prod.productId  AS recurso,                -- recurso real
+    NULL            AS centroTrabajo,
+    prod.productId  AS recurso,
 
-    uud.value AS allocated_time_centesimal,
-    op.catalogueId          AS Operacion,
+    ta.allocated_time_centesimal,
+    op.catalogueId  AS Operacion,
+
     ROW_NUMBER() OVER (
-    PARTITION BY p.catalogueId, op.catalogueId
-    ORDER BY prod.productId
-) AS nro_recurso
+        PARTITION BY p.catalogueId, op.catalogueId
+        ORDER BY prod.productId
+    ) AS nro_recurso
 
 FROM ProcessRevision        AS pr
 JOIN Process                AS p
@@ -762,16 +772,7 @@ JOIN ProductRevision        AS prod_rev
 JOIN Product                AS prod
       ON prod.id_Table = prod_rev.masterRef
 
--- Form maestro de proceso + TimeAnalysis
-LEFT JOIN Form AS f_proc
-       ON f_proc.name = CONCAT(p.catalogueId, '/', pr.revision)
-
-LEFT JOIN Form AS f_time
-       ON f_time.id_Table = f_proc.id_Table + 3
-
-LEFT JOIN UserValue_UserData AS uud
-       ON uud.id_Father = f_time.id_Table + 1
-      AND uud.title = 'allocated_time'
+-- ❌ ELIMINADO: lógica vieja basada en Form + offsets
 
 -- Vista e instancia de proceso (para nro_busqueda)
 INNER JOIN ProcessRevisionView pr_view 
@@ -790,172 +791,124 @@ INNER JOIN OperationRevision op_rev
 INNER JOIN Operation op 
         ON op.id_Table = op_rev.masterRef
 
--- Cálculo de tiempo
+--  NUEVO CALCULO
+OUTER APPLY (
+    SELECT TOP 1
+        uvf.value AS allocated_time_centesimal
+    FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
+    INNER JOIN AssociatedAttachment aa
+        ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
+       AND aa.role = 'METimeAnalysisRelation'
+    INNER JOIN UserValue_Form uvf
+        ON uvf.id_Father = RIGHT(aa.attachmentRef, LEN(aa.attachmentRef) - 3)
+       AND uvf.title = 'allocated_time'
+) AS ta
 
 ORDER BY
-	TRY_CONVERT(INT, SUBSTRING(p.catalogueId, 4, LEN(p.catalogueId) - 3)) DESC
+    TRY_CONVERT(INT, SUBSTRING(p.catalogueId, 4, LEN(p.catalogueId) - 3)) DESC
 ";
 
         //Consulta para los xml que vienen con WorkArea que apunta directo a ProductRevision
-        private const string ConsultaC_WorkAreaEspecial = @"
--- MEWorkArea que apunta directo a ProductRevision
+        //        private const string ConsultaC_WorkAreaEspecial = @"
+        //-- MEWorkArea que apunta directo a ProductRevision
 
-SELECT
-    p.catalogueId   AS Padre,
-    p.name          AS descripcion,
-    NULL            AS centroTrabajo,
-    wa_inst.productId  AS recurso,     -- la máquina/estación como recurso
-    op.catalogueId  AS Operacion,
-	ta.allocated_time_centesimal AS allocated_time_centesimal,
-	ROW_NUMBER() OVER (
-    PARTITION BY p.catalogueId, op.catalogueId
-    ORDER BY wa_inst.productId
-) AS nro_recurso
-
-
-FROM ProcessRevision pr
-JOIN Process p 
-       ON p.id_Table = pr.masterRef
-JOIN ProcessOccurrence po
-       ON po.instancedRef = pr.id_Table
-
--- MEWorkArea -> ProductRevision
-JOIN Occurrence occ_wa
-       ON occ_wa.parentRef = po.id_Table
-      AND occ_wa.subType   IN ('MEWorkArea','MEWorkarea')
-JOIN ProductRevision prod_rev
-       ON prod_rev.id_Table = occ_wa.instancedRef
-JOIN Product wa_inst
-       ON wa_inst.id_Table = prod_rev.masterRef
-
--- Operaciones
-LEFT JOIN ProcessOccurrence po_op 
-       ON po_op.parentRef = po.id_Table
-LEFT JOIN OperationRevision op_rev 
-       ON op_rev.id_Table = po_op.instancedRef
-LEFT JOIN Operation op 
-       ON op.id_Table = op_rev.masterRef
-
--- Tiempo por operación
-OUTER APPLY (
-    SELECT TOP 1
-        uvud_time.value AS allocated_time_centesimal
-    FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
-    JOIN AssociatedAttachment aa
-       ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
-    JOIN Form f_time
-       ON f_time.id_Table = RIGHT(aa.attachmentRef, LEN(aa.attachmentRef) - 3)
-      AND f_time.subType = 'MEOpTimeAnalysis'
-    JOIN UserValue_UserData uvud_time
-       ON uvud_time.id_Father = f_time.id_Table + 1
-      AND uvud_time.title = 'allocated_time'
-) AS ta
+        //SELECT
+        //    p.catalogueId   AS Padre,
+        //    p.name          AS descripcion,
+        //    NULL            AS centroTrabajo,
+        //    wa_inst.productId  AS recurso,     -- la máquina/estación como recurso
+        //    op.catalogueId  AS Operacion,
+        //	ta.allocated_time_centesimal AS allocated_time_centesimal,
+        //	ROW_NUMBER() OVER (
+        //    PARTITION BY p.catalogueId, op.catalogueId
+        //    ORDER BY wa_inst.productId
+        //) AS nro_recurso
 
 
-ORDER BY RIGHT(p.catalogueId, LEN(p.catalogueId) - 3) DESC;
-";
+        //FROM ProcessRevision pr
+        //JOIN Process p 
+        //       ON p.id_Table = pr.masterRef
+        //JOIN ProcessOccurrence po
+        //       ON po.instancedRef = pr.id_Table
+
+        //-- MEWorkArea -> ProductRevision
+        //JOIN Occurrence occ_wa
+        //       ON occ_wa.parentRef = po.id_Table
+        //      AND occ_wa.subType   IN ('MEWorkArea','MEWorkarea')
+        //JOIN ProductRevision prod_rev
+        //       ON prod_rev.id_Table = occ_wa.instancedRef
+        //JOIN Product wa_inst
+        //       ON wa_inst.id_Table = prod_rev.masterRef
+
+        //-- Operaciones
+        //LEFT JOIN ProcessOccurrence po_op 
+        //       ON po_op.parentRef = po.id_Table
+        //LEFT JOIN OperationRevision op_rev 
+        //       ON op_rev.id_Table = po_op.instancedRef
+        //LEFT JOIN Operation op 
+        //       ON op.id_Table = op_rev.masterRef
+
+        //-- Tiempo por operación
+        //OUTER APPLY (
+        //    SELECT TOP 1
+        //        uvud_time.value AS allocated_time_centesimal
+        //    FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
+        //    JOIN AssociatedAttachment aa
+        //       ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
+        //    JOIN Form f_time
+        //       ON f_time.id_Table = RIGHT(aa.attachmentRef, LEN(aa.attachmentRef) - 3)
+        //      AND f_time.subType = 'MEOpTimeAnalysis'
+        //    JOIN UserValue_UserData uvud_time
+        //       ON uvud_time.id_Father = f_time.id_Table + 1
+        //      AND uvud_time.title = 'allocated_time'
+        //) AS ta
+
+
+        //ORDER BY RIGHT(p.catalogueId, LEN(p.catalogueId) - 3) DESC;
+        //";
 
         public static string ObtenerConsultaRecursos(SqlConnection connection)
         {
-            bool hayWorkArea = false;
-            bool esWorkAreaNormal = false;
-            bool esWorkAreaEspecial = false;
-            bool existeTablaWAO = false;
-            bool usaWAO = false;
+            bool occurrenceTieneSubTypeMEWorkarea = false;
+            bool waoTieneSubType = false;
 
-            // ¿Existe físicamente la tabla WorkArea?
-            using (var cmd = new SqlCommand("SELECT OBJECT_ID('WorkArea', 'U');", connection))
+            // 1️⃣ Verificar Occurrence.subType = MEWorkarea
+            using (var cmd = new SqlCommand(@"
+IF COL_LENGTH('Occurrence','subType') IS NOT NULL
+AND EXISTS (
+    SELECT 1
+    FROM Occurrence
+    WHERE subType IN ('MEWorkArea','MEWorkarea')
+)
+SELECT 1;", connection))
             {
                 var res = cmd.ExecuteScalar();
-                hayWorkArea = (res != null && res != DBNull.Value);
+                occurrenceTieneSubTypeMEWorkarea = (res != null && res != DBNull.Value);
             }
 
-            if (hayWorkArea)
+            if (occurrenceTieneSubTypeMEWorkarea)
             {
-                // Caso A/D: MEWorkArea -> WorkAreaRevision
-                using (var cmd = new SqlCommand(@"
-            SELECT TOP 1 1
-            FROM Occurrence o
-            JOIN WorkAreaRevision war ON war.id_Table = o.instancedRef
-            WHERE o.subType IN ('MEWorkArea','MEWorkarea');", connection))
-                {
-                    var res = cmd.ExecuteScalar();
-                    esWorkAreaNormal = (res != null && res != DBNull.Value);
-                }
-
-                // Caso C: MEWorkArea -> ProductRevision directo
-                using (var cmd = new SqlCommand(@"
-            SELECT TOP 1 1
-            FROM Occurrence o
-            JOIN ProductRevision pr ON pr.id_Table = o.instancedRef
-            WHERE o.subType IN ('MEWorkArea','MEWorkarea');", connection))
-                {
-                    var res = cmd.ExecuteScalar();
-                    esWorkAreaEspecial = (res != null && res != DBNull.Value);
-                }
-
-                // ✅ Primero verificamos si existe la tabla WorkAreaOccurrence
-                using (var cmd = new SqlCommand("SELECT OBJECT_ID('WorkAreaOccurrence', 'U');", connection))
-                {
-                    var res = cmd.ExecuteScalar();
-                    existeTablaWAO = (res != null && res != DBNull.Value);
-                }
-
-                // ✅ Solo si existe, preguntamos si hay datos reales (este XML/BD usa WAO)
-                if (existeTablaWAO)
-                {
-                    using (var cmd = new SqlCommand(@"
-                SELECT TOP 1 1
-                FROM WorkAreaOccurrence wao
-                JOIN Occurrence occ2 ON occ2.parentRef = wao.id_Table
-                JOIN ProductRevision pr2 ON pr2.id_Table = occ2.instancedRef;", connection))
-                    {
-                        var res = cmd.ExecuteScalar();
-                        usaWAO = (res != null && res != DBNull.Value);
-                    }
-                }
-                else
-                {
-                    usaWAO = false;
-                }
+                Utilidades.EscribirEnLog("SG2/HS3 -> Occurrence.subType detectado → Query 1 WorkArea");
+                return ConsultaA_ConWorkArea_SinWAO;
             }
 
-            Utilidades.EscribirEnLog(
-                "ObtenerQueryRecursos -> hayWorkArea=" + hayWorkArea +
-                ", normal=" + esWorkAreaNormal +
-                ", especial=" + esWorkAreaEspecial +
-                ", existeWAO=" + existeTablaWAO +
-                ", usaWAO=" + usaWAO);
-
-            Utilidades.EscribirEnLog("Query elegida: " +
-                (!hayWorkArea ? "B" :
-                 esWorkAreaNormal && usaWAO ? "D_WAO" :
-                 esWorkAreaNormal && !usaWAO ? "A_SinWAO" :
-                 esWorkAreaEspecial ? "C" : "NINGUNA"));
-
-            // 🔀 Selección de consulta según combinación detectada
-            if (!hayWorkArea)
-                return consultaB_sin_workarea;              // sin WorkArea
-
-            if (esWorkAreaNormal)
+            // 2️⃣ Si no existe, revisar WorkAreaOccurrence
+            using (var cmd = new SqlCommand(@"
+SELECT 1
+WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
             {
-                if (usaWAO)
-                    return consultaD_workarea_recurso;      // usa WorkAreaOccurrence
-                else
-                    return ConsultaA_ConWorkArea_SinWAO;    // sin WorkAreaOccurrence
+                var res = cmd.ExecuteScalar();
+                waoTieneSubType = (res != null && res != DBNull.Value);
             }
 
-            if (esWorkAreaEspecial)
-                return ConsultaC_WorkAreaEspecial;          // MEWorkArea -> ProductRevision
-
-            // Fallback: WorkArea y WAO existen pero sin MEWorkArea en Occurrence (ej: BOP 150%)
-            if (usaWAO)
+            if (waoTieneSubType)
             {
-                Utilidades.EscribirEnLog("ObtenerQueryRecursos -> Fallback: WAO con datos pero sin MEWorkArea. Usando consultaD.");
+                Utilidades.EscribirEnLog("SG2/SH3 -> WorkAreaOccurrence.subType detectado → Query múltiples WorkAreas");
                 return consultaD_workarea_recurso;
             }
 
-            throw new Exception("No se pudo determinar el tipo de WorkArea para este XML.");
+            Utilidades.EscribirEnLog("SG2/SH3 -> No hay WorkArea → Query SIN WorkArea");
+            return consultaB_sin_workarea;
         }
 
         public static List<string> jsonSG2_SH3()

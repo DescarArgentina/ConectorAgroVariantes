@@ -147,8 +147,8 @@ namespace Web_Service // Note: actual namespace depends on the project name.
                 //    BorrarTabla(conn, new Dictionary<string, TableBucket>());
                 //}
 
-                //// 6) Procesar BOP
-                //await ProcesarBOP(connectionString, bopInput, bopProcesada);
+                // 6) Procesar BOP
+                await ProcesarBOP(connectionString, bopInput, bopProcesada);
 
                 Environment.ExitCode = 0;
             }
@@ -620,30 +620,38 @@ ORDER BY
                     contadorXmls++;
 
                     // SB1 (productos de la BOP)
-                    Console.WriteLine("[MBOM] Generando SB1 (productos) desde estructura BOP...");
+                    Console.WriteLine("[BOP] Generando SB1 (productos) desde estructura BOP...");
                     var listaSB1_BOP = Tabla_SB1.jsonSB1_BOP();
-                    Console.WriteLine($"[MBOM] jsonSB1() devolvió {listaSB1_BOP.Count} productos.");
-                    // [PRUEBA] Envío a Protheus desactivado
+                    Console.WriteLine($"[BOP] jsonSB1_BOP() devolvió {listaSB1_BOP.Count} productos.");
+                    // [PRUEBA] Envío desactivado
                     //foreach (string s in listaSB1_BOP)
                     //{
-                    //    Console.WriteLine("[MBOM] Enviando producto SB1 a Totvs...");
                     //    await Tabla_SB1.postSB1(s);
                     //}
+                    Console.WriteLine("[PRUEBA] BOP SB1 listo. Presioná ENTER para continuar con SG1...");
+                    Console.ReadLine();
 
-                    // SG1 reemplazada por ZG1 — ya no se genera ni envía en BOP
-                    //Console.WriteLine("[BOP] Generando SG1 (estructuras) desde BOP...");
-                    //var estructurasSG1_BOP = Tabla_SG1.jsonSG1_BOP();
-                    //await Tabla_SG1.postSG1(estructurasSG1_BOP);
+                    // ZG1 BOP (estructuras con variantes)
+                    Console.WriteLine("[BOP] Generando ZG1 (estructuras con variantes) desde BOP...");
+                    var estructurasZG1_BOP = Tabla_SG1.jsonZG1_BOP();
+                    Console.WriteLine($"[BOP] jsonZG1_BOP() devolvió {estructurasZG1_BOP.Count} estructuras.");
+                    // [PRUEBA] Envío desactivado
+                    //await Tabla_SG1.postZG1(estructurasZG1_BOP);
+                    Console.WriteLine("[PRUEBA] BOP ZG1 listo. Presioná ENTER para continuar con SG2/SH3...");
+                    Console.ReadLine();
 
                     // SG2/SH3 (procesos)
                     Console.WriteLine("[BOP] Generando SG2/SH3 (Procesos Productivos) desde BOP...");
                     var listaSG2 = Tablas_SG2_SH3.jsonSG2_SH3();
-                    // [PRUEBA] Envío a Protheus desactivado
+                    Console.WriteLine($"[BOP] jsonSG2_SH3() devolvió {listaSG2.Count} JSONs.");
+                    // [PRUEBA] Envío desactivado
                     //foreach (string s in listaSG2)
                     //{
                     //    await Tablas_SG2_SH3.EnviarSG2_SH3(s);
                     //    Utilidades.EscribirJSONEnLog(s);
                     //}
+                    Console.WriteLine("[PRUEBA] BOP SG2/SH3 listo. Presioná ENTER para finalizar...");
+                    Console.ReadLine();
 
                     // JSONs jerárquicos (igual que antes)
                     Console.WriteLine("\n============================");
@@ -918,27 +926,26 @@ ORDER BY
                         CargarXmlEnSqlStreaming(connection, archivo, contadorXmls);
                         CrearIndices(connection);
 
-                        // [PRUEBA] SB1 ya cargado — comentado para ir directo a ZG1
-                        //Console.WriteLine("[MBOM] Generando SB1...");
-                        //HashSet<string> codigosFantasma;
-                        //Console.WriteLine("[MBOM] Generando SB1...");
-                        //var listaSB1_MBOM = Tabla_SB1.jsonSB1_MBOM(out codigosFantasma);
-                        //Console.WriteLine($"[MBOM] jsonSB1() devolvió {listaSB1_MBOM.Count} productos. Fantasmas={codigosFantasma.Count}");
+                        Console.WriteLine("[MBOM] Generando SB1...");
+                        HashSet<string> codigosFantasma;
+                        var listaSB1_MBOM = Tabla_SB1.jsonSB1_MBOM(out codigosFantasma);
+                        Console.WriteLine($"[MBOM] jsonSB1() devolvió {listaSB1_MBOM.Count} productos. Fantasmas={codigosFantasma.Count}");
+                        // [PRUEBA] Envío desactivado
                         //foreach (string s in listaSB1_MBOM)
                         //{
                         //    Console.WriteLine("[MBOM] Enviando producto SB1 a Totvs...");
                         //    await Tabla_SB1.postSB1(s);
                         //}
-
-                        // SG1 reemplazada por ZG1 — ya no se genera ni envía
-                        //Console.WriteLine("[MBOM] Generando SG1 (estructuras) desde MBOM (solo fantasmas)...");
-                        //var estructurasMBOM = Tabla_SG1.jsonSG1_MBOM(codigosFantasma);
-                        //await Tabla_SG1.postSG1(estructurasMBOM);
+                        Console.WriteLine("[PRUEBA] MBOM SB1 listo. Presioná ENTER para continuar con ZG1...");
+                        Console.ReadLine();
 
                         Console.WriteLine("[MBOM] Generando ZG1 (estructuras con variantes)...");
                         var listaZG1 = Tabla_SG1.jsonZG1_MBOM();
                         Console.WriteLine($"[MBOM] jsonZG1() generó {listaZG1.Count} JSONs de estructura con variantes.");
-                        await Tabla_SG1.postZG1(listaZG1);
+                        // [PRUEBA] Envío desactivado
+                        //await Tabla_SG1.postZG1(listaZG1);
+                        Console.WriteLine("[PRUEBA] MBOM ZG1 listo. Presioná ENTER para continuar con BOP...");
+                        Console.ReadLine();
                     }
 
                     // Mover procesado (igual que antes)
@@ -1136,6 +1143,27 @@ CREATE TABLE ZG1 (
                 }
             }
             Console.WriteLine("[INDICES] Índices creados.");
+
+            string[] statsTablas = new[]
+            {
+                "Occurrence", "UserValue_UserData", "UserValue_Occurrence",
+                "UserData", "ProductRevision", "Product",
+                "ProductRevisionView", "ProductInstance"
+            };
+            foreach (var tabla in statsTablas)
+            {
+                try
+                {
+                    using var cmd = new SqlCommand($"IF OBJECT_ID('{tabla}','U') IS NOT NULL UPDATE STATISTICS [{tabla}] WITH FULLSCAN", connection) { CommandTimeout = 300 };
+                    cmd.ExecuteNonQuery();
+                    Console.WriteLine($"[STATS] {tabla} OK");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[STATS] Advertencia {tabla}: {ex.Message}");
+                }
+            }
+            Console.WriteLine("[STATS] Estadísticas actualizadas.");
         }
 
         private static readonly HashSet<string> NodosIgnorados = new(StringComparer.OrdinalIgnoreCase)

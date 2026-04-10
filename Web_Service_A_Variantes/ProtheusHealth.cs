@@ -8,7 +8,7 @@ using Web_Service;
 using static Web_Service.Utilidades;
 public static class ProtheusHealth
 {
-    private static readonly string UrlHealth = "http://119.8.73.193:8096/rest/TCEstado/Consultar/";
+    private static readonly string UrlHealth = "http://119.8.73.193:8076/rest/TCEstado/Consultar/";
     private static readonly string HealthBodyJson = "{\"consulta\":\"TeamCenter\"}";
 
     private static readonly string _username = "USERREST";

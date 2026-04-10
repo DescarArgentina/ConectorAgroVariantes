@@ -18,529 +18,823 @@ namespace Web_Service
         private const string BaseUrlPut = "http://119.8.73.193:8076/rest/TCProductos/Modificar/";
         private const string Username = "USERREST";
         private const string Password = "restagr";
-        private const string consultaSB1_BOP_ConWorkArea = @"
-WITH CTE_Hierarchy AS ( 
-    SELECT
-        o.id_Table,
-        pr.name,
-        CASE 
-            WHEN LEFT(p.catalogueId, 2) = 'P-'
-                THEN RIGHT(p.catalogueId, LEN(p.catalogueId) - 2)
-            ELSE p.catalogueId
-        END AS catalogueId,
-        CAST(o.parentRef AS INT) AS parentRef,
-        pr.revision,
-        pr.subType,
-        o.idXml,
-        'PA' AS Tipo,
-        CASE
-            WHEN uudUnidad.title = 'Agm4_Unidad'     THEN uudUnidad.value
-            WHEN uudUnidad.title = 'Agm4_Kilogramos' THEN uudUnidad.value
-            WHEN uudUnidad.title = 'Agm4_Litros'     THEN uudUnidad.value
-            WHEN uudUnidad.title = 'Agm4_Metros'     THEN uudUnidad.value
-            ELSE 'UN'
-        END AS unMedida,
-        waData.WorkArea_CatalogueId,
-        waData.WorkArea_Nombre,
-        waData.WorkArea_Revision
-    FROM ProcessOccurrence o
-    INNER JOIN ProcessRevision pr ON o.instancedRef = pr.id_Table
-    INNER JOIN Process p          ON pr.masterRef   = p.id_Table
-    LEFT JOIN Form fUnidad
-        ON p.catalogueId = CASE
-            WHEN CHARINDEX('/', fUnidad.name) > 0
-                THEN LEFT(fUnidad.name, CHARINDEX('/', fUnidad.name) - 1)
-            ELSE fUnidad.name
-        END
-    LEFT JOIN UserValue_UserData uudUnidad
-        ON fUnidad.id_Table + 9 = uudUnidad.id_Father
-       AND p.idXml = uudUnidad.idXml
-    OUTER APPLY (
-        SELECT TOP 1
-            wa.catalogueId AS WorkArea_CatalogueId,
-            wa.name        AS WorkArea_Nombre,
-            war.revision   AS WorkArea_Revision
-        FROM ProcessOccurrence po_wa
-        INNER JOIN Occurrence occ_wa
-            ON occ_wa.parentRef = po_wa.id_Table
-           AND occ_wa.subType   = 'MEWorkArea'
-        INNER JOIN WorkAreaRevision war
-            ON war.id_Table = occ_wa.instancedRef
-        INNER JOIN WorkArea wa
-            ON wa.id_Table = war.masterRef
-        WHERE po_wa.instancedRef = pr.id_Table
-    ) AS waData
-),
+        private const string consultaSB1_BOP_Con1Workarea = @"
+WITH CTE_Hierarchy AS (
+      SELECT
+          o.id_Table,
+          pr.name,
+          CASE
+              WHEN LEFT(p.catalogueId, 2) = 'P-'
+                  THEN RIGHT(p.catalogueId, LEN(p.catalogueId) - 2)
+              ELSE p.catalogueId
+          END AS catalogueId,
+          CAST(o.parentRef AS INT) AS parentRef,
+          pr.revision,
+          pr.subType,
+          o.idXml,
+          'PA' AS Tipo,
+          'UN' AS unMedida,
+          waData.WorkArea_CatalogueId,
+          waData.WorkArea_Nombre,
+          waData.WorkArea_Revision,
+          CAST('' AS NVARCHAR(MAX)) AS bl_formula,
+          CAST('' AS NVARCHAR(MAX)) AS idContext
+      FROM ProcessOccurrence o
+      INNER JOIN ProcessRevision pr ON o.instancedRef = pr.id_Table
+      INNER JOIN Process p          ON pr.masterRef   = p.id_Table
+      OUTER APPLY (
+          SELECT TOP 1
+              wa.catalogueId AS WorkArea_CatalogueId,
+              wa.name        AS WorkArea_Nombre,
+              war.revision   AS WorkArea_Revision
+          FROM Occurrence wao
+          INNER JOIN WorkAreaRevision war ON war.id_Table = wao.instancedRef
+          INNER JOIN WorkArea wa          ON wa.id_Table  = war.masterRef
+          WHERE wao.parentRef = o.id_Table
+      ) AS waData
+  ),
+  CTE_Niveles AS (
+      SELECT
+          h.*,
+          0 AS Nivel
+      FROM CTE_Hierarchy h
+      WHERE h.parentRef IS NULL OR h.parentRef = 0
 
-CTE_Niveles AS (
-    SELECT
-        h.*,
-        0 AS Nivel
-    FROM CTE_Hierarchy h
-    WHERE h.parentRef IS NULL OR h.parentRef = 0
+      UNION ALL
 
-    UNION ALL
+      SELECT
+          h.*,
+          n.Nivel + 1
+      FROM CTE_Hierarchy h
+      INNER JOIN CTE_Niveles n ON h.parentRef = n.id_Table
+  )
+  SELECT *
+  FROM (
+      SELECT
+          COALESCE(Parent.name, '')        AS Nombre_Padre,
+          COALESCE(Parent.catalogueId, '') AS Process_codigo,
+          CASE
+              WHEN LEFT(Child.catalogueId, 2) = 'PR'
+                  THEN Child.name + ' - Proceso: ' + COALESCE(Parent.catalogueId, '')
+              ELSE Child.name
+          END AS Nombre_Hijo,
+          Child.catalogueId  AS Codigo_Hijo,
+          Child.subType      AS Subtype_Hijo,
+          Child.revision     AS Revision,
+          1                  AS CantidadHijo_Total,
+          nChild.Nivel       AS Nivel,
+          CASE
+              WHEN LEFT(Child.catalogueId, 2) = 'PR'
+               AND RIGHT(Child.catalogueId, 1) = 'T'
+                  THEN 'SV'
+              WHEN Child.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
+                  THEN 'MP'
+              WHEN LEFT(Child.catalogueId, 2) = 'PR'
+                  THEN 'PI'
+              ELSE 'PA'
+          END AS Tipo,
+          Child.unMedida,
+          Child.WorkArea_CatalogueId,
+          Child.WorkArea_Nombre,
+          Child.WorkArea_Revision,
+          Child.bl_formula,
+          Child.idContext
+      FROM CTE_Niveles nChild
+      LEFT JOIN CTE_Niveles   nParent ON nChild.parentRef = nParent.id_Table
+      LEFT JOIN CTE_Hierarchy Parent  ON nParent.id_Table = Parent.id_Table
+      LEFT JOIN CTE_Hierarchy Child   ON nChild.id_Table  = Child.id_Table
 
-    SELECT
-        h.*,
-        n.Nivel + 1
-    FROM CTE_Hierarchy h
-    INNER JOIN CTE_Niveles n ON h.parentRef = n.id_Table
-)
+      UNION ALL
 
+      SELECT
+          Operation.name   AS Nombre_Padre,
+          p2.catalogueId   AS Process_codigo,
+          CASE
+              WHEN LEFT(x.CodigoNorm, 2) = 'PR'
+                  THEN p.name + '- Proceso: ' + COALESCE(p2.catalogueId, '')
+              ELSE p.name
+          END AS Nombre_Hijo,
+          x.CodigoNorm AS Codigo_Hijo,
+          pr.subType   AS Subtype_Hijo,
+          pr.revision  AS Revision,
+          COUNT(p.productId) AS CantidadHijo_Total,
+          3 AS Nivel,
+          CASE
+              WHEN LEFT(x.CodigoNorm, 2) = 'PR'
+               AND RIGHT(x.CodigoNorm, 1) = 'T'
+                  THEN 'SV'
+              WHEN pr.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
+                  THEN 'MP'
+              WHEN LEFT(x.CodigoNorm, 2) = 'PR'
+                  THEN 'PI'
+              ELSE 'PA'
+          END AS Tipo,
+          COALESCE(
+              NULLIF(MAX(uomTagProd.ValueTag), ''),
+              MAX(uomUnitProd.UnidadMedida),
+              'UN'
+          ) AS unMedida,
+          CAST(NULL AS varchar(50))  AS WorkArea_CatalogueId,
+          CAST(NULL AS varchar(255)) AS WorkArea_Nombre,
+          CAST(NULL AS varchar(20))  AS WorkArea_Revision,
+          ISNULL(MAX(bl_pick.bl_formula_val), '') AS bl_formula,
+          MAX(CASE
+              WHEN ISNULL(bl_pick.bl_formula_val, '') != ''
+               AND CHARINDEX('[''', bl_pick.bl_formula_val) > 0
+               AND CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val)) > 0
+              THEN SUBSTRING(
+                      bl_pick.bl_formula_val,
+                      CHARINDEX('[''', bl_pick.bl_formula_val) + 2,
+                      CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val))
+                        - CHARINDEX('[''', bl_pick.bl_formula_val) - 2)
+              ELSE ''
+          END) AS idContext
+      FROM Occurrence
+      INNER JOIN ProductRevision pr ON pr.id_Table = Occurrence.instancedRef
+      INNER JOIN Product p          ON p.id_Table  = pr.masterRef
+
+      LEFT JOIN ProcessOccurrence o   ON Occurrence.parentRef = o.id_Table
+      LEFT JOIN OperationRevision op  ON op.id_Table = o.instancedRef
+      LEFT JOIN Operation             ON Operation.id_Table = op.masterRef
+
+      LEFT JOIN ProcessOccurrence o2  ON o2.id_Table     = o.parentRef
+      LEFT JOIN ProcessRevision pr2   ON o2.instancedRef = pr2.id_Table
+      LEFT JOIN Process p2            ON pr2.masterRef   = p2.id_Table
+
+      OUTER APPLY (
+          SELECT TOP 1 s.ValueTag, s.DataRef, s.UnitIdTable
+          FROM (
+              SELECT
+                  uvp.value AS ValueTag,
+                  uvp.dataRef AS DataRef,
+                  TRY_CONVERT(int, REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(uvp.dataRef)),'#',''),'ID',''),'id','')) AS
+  UnitIdTable,
+                  1 AS prio
+              FROM UserValue_Product uvp
+              WHERE uvp.idXml     = p.idXml
+                AND uvp.title     = 'uom_tag'
+                AND uvp.id_Father = p.id_Table
+
+              UNION ALL
+
+              SELECT
+                  uvp2.value,
+                  uvp2.dataRef,
+                  TRY_CONVERT(int, REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(uvp2.dataRef)),'#',''),'ID',''),'id','')),
+                  2
+              FROM UserData udp
+              INNER JOIN UserValue_Product uvp2
+                  ON uvp2.id_Father = udp.id_Table
+                 AND uvp2.idXml     = udp.idXml
+              WHERE udp.idXml     = p.idXml
+                AND udp.id_Father  = p.id_Table
+                AND uvp2.title     = 'uom_tag'
+          ) s
+          ORDER BY s.prio
+      ) AS uomTagProd
+
+      OUTER APPLY (
+          SELECT TOP 1 t.UnidadMedida
+          FROM (
+              SELECT
+                  CASE
+                      WHEN uvu.title = 'Agm4_Kilogramos' THEN uvu.value
+                      WHEN uvu.title = 'Agm4_Litros'     THEN uvu.value
+                      WHEN uvu.title = 'Agm4_Metros'     THEN uvu.value
+                      WHEN uvu.title = 'Agm4_Unidad'     THEN uvu.value
+                      ELSE NULL
+                  END AS UnidadMedida,
+                  CASE uvu.title
+                      WHEN 'Agm4_Kilogramos' THEN 1
+                      WHEN 'Agm4_Litros'     THEN 2
+                      WHEN 'Agm4_Metros'     THEN 3
+                      WHEN 'Agm4_Unidad'     THEN 4
+                      ELSE 99
+                  END AS prio
+              FROM Unit u
+              INNER JOIN UserValue_Unit uvu
+                  ON uvu.id_Father = u.id_Table
+                 AND uvu.idXml     = u.idXml
+              WHERE u.idXml = p.idXml
+                AND uomTagProd.UnitIdTable IS NOT NULL
+                AND u.id_Table = uomTagProd.UnitIdTable
+                AND uvu.title IN ('Agm4_Unidad','Agm4_Kilogramos','Agm4_Litros','Agm4_Metros')
+
+              UNION ALL
+
+              SELECT
+                  CASE
+                      WHEN uuv.title = 'Agm4_Kilogramos' THEN uuv.value
+                      WHEN uuv.title = 'Agm4_Litros'     THEN uuv.value
+                      WHEN uuv.title = 'Agm4_Metros'     THEN uuv.value
+                      WHEN uuv.title = 'Agm4_Unidad'     THEN uuv.value
+                      ELSE NULL
+                  END,
+                  CASE uuv.title
+                      WHEN 'Agm4_Kilogramos' THEN 11
+                      WHEN 'Agm4_Litros'     THEN 12
+                      WHEN 'Agm4_Metros'     THEN 13
+                      WHEN 'Agm4_Unidad'     THEN 14
+                      ELSE 199
+                  END
+              FROM Unit u
+              INNER JOIN UserData ud_u
+                  ON ud_u.id_Father = u.id_Table
+                 AND ud_u.idXml     = u.idXml
+              INNER JOIN UserValue_UserData uuv
+                  ON uuv.id_Father = ud_u.id_Table
+                 AND uuv.idXml     = ud_u.idXml
+              WHERE u.idXml = p.idXml
+                AND uomTagProd.UnitIdTable IS NOT NULL
+                AND u.id_Table = uomTagProd.UnitIdTable
+                AND uuv.title IN ('Agm4_Unidad','Agm4_Kilogramos','Agm4_Litros','Agm4_Metros')
+          ) t
+          WHERE t.UnidadMedida IS NOT NULL AND LTRIM(RTRIM(t.UnidadMedida)) <> ''
+          ORDER BY t.prio
+      ) AS uomUnitProd
+
+      CROSS APPLY (
+          SELECT
+              CASE
+                  WHEN LEFT(p.productId, 1) = 'E'
+                      THEN RIGHT(p.productId, LEN(p.productId) - 1)
+                  ELSE p.productId
+              END AS CodigoNorm
+      ) AS x
+
+      OUTER APPLY (
+          SELECT TOP 1 uvo.value AS bl_formula_val
+          FROM Occurrence o_formula
+          INNER JOIN UserValue_Occurrence uvo
+              ON uvo.id_Father = o_formula.id_Table
+             AND uvo.title = 'bl_formula'
+          WHERE o_formula.instancedRef = Occurrence.instancedRef
+            AND uvo.value IS NOT NULL
+            AND LTRIM(RTRIM(uvo.value)) != ''
+      ) bl_pick
+
+      WHERE
+          (
+              Occurrence.subType = 'MEConsumed'
+              OR (
+                  (Occurrence.subType IS NULL OR LTRIM(RTRIM(Occurrence.subType)) = '')
+                  AND op.id_Table IS NOT NULL
+              )
+          )
+
+      GROUP BY
+          Operation.name,
+          p2.catalogueId,
+          p.name,
+          x.CodigoNorm,
+          pr.subType,
+          pr.revision
+  ) R
+  ORDER BY
+      R.Nivel,
+      R.Codigo_Hijo DESC;
+    ";
+        private const string consultaSB1_BOP_ConMasWorkareas = @"
+WITH CTE_Hierarchy AS (
+      SELECT
+          o.id_Table,
+          pr.name,
+          CASE
+              WHEN LEFT(p.catalogueId, 2) = 'P-'
+                  THEN RIGHT(p.catalogueId, LEN(p.catalogueId) - 2)
+              ELSE p.catalogueId
+          END AS catalogueId,
+          CAST(o.parentRef AS INT) AS parentRef,
+          pr.revision,
+          pr.subType,
+          o.idXml,
+          'PA' AS Tipo,
+          'UN' AS unMedida,
+          waData.WorkArea_CatalogueId,
+          waData.WorkArea_Nombre,
+          waData.WorkArea_Revision,
+          CAST('' AS NVARCHAR(MAX)) AS bl_formula,
+          CAST('' AS NVARCHAR(MAX)) AS idContext
+      FROM ProcessOccurrence o
+      INNER JOIN ProcessRevision pr ON o.instancedRef = pr.id_Table
+      INNER JOIN Process p          ON pr.masterRef   = p.id_Table
+      OUTER APPLY (
+          SELECT TOP 1
+              wa.catalogueId AS WorkArea_CatalogueId,
+              wa.name        AS WorkArea_Nombre,
+              war.revision   AS WorkArea_Revision
+          FROM WorkAreaOccurrence wao
+          INNER JOIN WorkAreaRevision war ON war.id_Table = wao.instancedRef
+          INNER JOIN WorkArea wa          ON wa.id_Table  = war.masterRef
+          WHERE wao.parentRef = o.id_Table
+      ) AS waData
+  ),
+  CTE_Niveles AS (
+      SELECT
+          h.*,
+          0 AS Nivel
+      FROM CTE_Hierarchy h
+      WHERE h.parentRef IS NULL OR h.parentRef = 0
+
+      UNION ALL
+
+      SELECT
+          h.*,
+          n.Nivel + 1
+      FROM CTE_Hierarchy h
+      INNER JOIN CTE_Niveles n ON h.parentRef = n.id_Table
+  )
+  SELECT *
+  FROM (
+      SELECT
+          COALESCE(Parent.name, '')        AS Nombre_Padre,
+          COALESCE(Parent.catalogueId, '') AS Process_codigo,
+          CASE
+              WHEN LEFT(Child.catalogueId, 2) = 'PR'
+                  THEN Child.name + ' - Proceso: ' + COALESCE(Parent.catalogueId, '')
+              ELSE Child.name
+          END AS Nombre_Hijo,
+          Child.catalogueId  AS Codigo_Hijo,
+          Child.subType      AS Subtype_Hijo,
+          Child.revision     AS Revision,
+          1                  AS CantidadHijo_Total,
+          nChild.Nivel       AS Nivel,
+          CASE
+              WHEN LEFT(Child.catalogueId, 2) = 'PR'
+               AND RIGHT(Child.catalogueId, 1) = 'T'
+                  THEN 'SV'
+              WHEN Child.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
+                  THEN 'MP'
+              WHEN LEFT(Child.catalogueId, 2) = 'PR'
+                  THEN 'PI'
+              ELSE 'PA'
+          END AS Tipo,
+          Child.unMedida,
+          Child.WorkArea_CatalogueId,
+          Child.WorkArea_Nombre,
+          Child.WorkArea_Revision,
+          Child.bl_formula,
+          Child.idContext
+      FROM CTE_Niveles nChild
+      LEFT JOIN CTE_Niveles   nParent ON nChild.parentRef = nParent.id_Table
+      LEFT JOIN CTE_Hierarchy Parent  ON nParent.id_Table = Parent.id_Table
+      LEFT JOIN CTE_Hierarchy Child   ON nChild.id_Table  = Child.id_Table
+
+      UNION ALL
+
+      SELECT
+          Operation.name   AS Nombre_Padre,
+          p2.catalogueId   AS Process_codigo,
+          CASE
+              WHEN LEFT(x.CodigoNorm, 2) = 'PR'
+                  THEN p.name + '- Proceso: ' + COALESCE(p2.catalogueId, '')
+              ELSE p.name
+          END AS Nombre_Hijo,
+          x.CodigoNorm AS Codigo_Hijo,
+          pr.subType   AS Subtype_Hijo,
+          pr.revision  AS Revision,
+          COUNT(p.productId) AS CantidadHijo_Total,
+          3 AS Nivel,
+          CASE
+              WHEN LEFT(x.CodigoNorm, 2) = 'PR'
+               AND RIGHT(x.CodigoNorm, 1) = 'T'
+                  THEN 'SV'
+              WHEN pr.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
+                  THEN 'MP'
+              WHEN LEFT(x.CodigoNorm, 2) = 'PR'
+                  THEN 'PI'
+              ELSE 'PA'
+          END AS Tipo,
+          COALESCE(
+              NULLIF(MAX(uomTagProd.ValueTag), ''),
+              MAX(uomUnitProd.UnidadMedida),
+              'UN'
+          ) AS unMedida,
+          CAST(NULL AS varchar(50))  AS WorkArea_CatalogueId,
+          CAST(NULL AS varchar(255)) AS WorkArea_Nombre,
+          CAST(NULL AS varchar(20))  AS WorkArea_Revision,
+          ISNULL(MAX(bl_pick.bl_formula_val), '') AS bl_formula,
+          MAX(CASE
+              WHEN ISNULL(bl_pick.bl_formula_val, '') != ''
+               AND CHARINDEX('[''', bl_pick.bl_formula_val) > 0
+               AND CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val)) > 0
+              THEN SUBSTRING(
+                      bl_pick.bl_formula_val,
+                      CHARINDEX('[''', bl_pick.bl_formula_val) + 2,
+                      CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val))
+                        - CHARINDEX('[''', bl_pick.bl_formula_val) - 2)
+              ELSE ''
+          END) AS idContext
+      FROM Occurrence
+      INNER JOIN ProductRevision pr ON pr.id_Table = Occurrence.instancedRef
+      INNER JOIN Product p          ON p.id_Table  = pr.masterRef
+
+      LEFT JOIN ProcessOccurrence o   ON Occurrence.parentRef = o.id_Table
+      LEFT JOIN OperationRevision op  ON op.id_Table = o.instancedRef
+      LEFT JOIN Operation             ON Operation.id_Table = op.masterRef
+
+      LEFT JOIN ProcessOccurrence o2  ON o2.id_Table     = o.parentRef
+      LEFT JOIN ProcessRevision pr2   ON o2.instancedRef = pr2.id_Table
+      LEFT JOIN Process p2            ON pr2.masterRef   = p2.id_Table
+
+      OUTER APPLY (
+          SELECT TOP 1 s.ValueTag, s.DataRef, s.UnitIdTable
+          FROM (
+              SELECT
+                  uvp.value AS ValueTag,
+                  uvp.dataRef AS DataRef,
+                  TRY_CONVERT(int, REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(uvp.dataRef)),'#',''),'ID',''),'id','')) AS
+  UnitIdTable,
+                  1 AS prio
+              FROM UserValue_Product uvp
+              WHERE uvp.idXml     = p.idXml
+                AND uvp.title     = 'uom_tag'
+                AND uvp.id_Father = p.id_Table
+
+              UNION ALL
+
+              SELECT
+                  uvp2.value,
+                  uvp2.dataRef,
+                  TRY_CONVERT(int, REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(uvp2.dataRef)),'#',''),'ID',''),'id','')),
+                  2
+              FROM UserData udp
+              INNER JOIN UserValue_Product uvp2
+                  ON uvp2.id_Father = udp.id_Table
+                 AND uvp2.idXml     = udp.idXml
+              WHERE udp.idXml     = p.idXml
+                AND udp.id_Father  = p.id_Table
+                AND uvp2.title     = 'uom_tag'
+          ) s
+          ORDER BY s.prio
+      ) AS uomTagProd
+
+      OUTER APPLY (
+          SELECT TOP 1 t.UnidadMedida
+          FROM (
+              SELECT
+                  CASE
+                      WHEN uvu.title = 'Agm4_Kilogramos' THEN uvu.value
+                      WHEN uvu.title = 'Agm4_Litros'     THEN uvu.value
+                      WHEN uvu.title = 'Agm4_Metros'     THEN uvu.value
+                      WHEN uvu.title = 'Agm4_Unidad'     THEN uvu.value
+                      ELSE NULL
+                  END AS UnidadMedida,
+                  CASE uvu.title
+                      WHEN 'Agm4_Kilogramos' THEN 1
+                      WHEN 'Agm4_Litros'     THEN 2
+                      WHEN 'Agm4_Metros'     THEN 3
+                      WHEN 'Agm4_Unidad'     THEN 4
+                      ELSE 99
+                  END AS prio
+              FROM Unit u
+              INNER JOIN UserValue_Unit uvu
+                  ON uvu.id_Father = u.id_Table
+                 AND uvu.idXml     = u.idXml
+              WHERE u.idXml = p.idXml
+                AND uomTagProd.UnitIdTable IS NOT NULL
+                AND u.id_Table = uomTagProd.UnitIdTable
+                AND uvu.title IN ('Agm4_Unidad','Agm4_Kilogramos','Agm4_Litros','Agm4_Metros')
+
+              UNION ALL
+
+              SELECT
+                  CASE
+                      WHEN uuv.title = 'Agm4_Kilogramos' THEN uuv.value
+                      WHEN uuv.title = 'Agm4_Litros'     THEN uuv.value
+                      WHEN uuv.title = 'Agm4_Metros'     THEN uuv.value
+                      WHEN uuv.title = 'Agm4_Unidad'     THEN uuv.value
+                      ELSE NULL
+                  END,
+                  CASE uuv.title
+                      WHEN 'Agm4_Kilogramos' THEN 11
+                      WHEN 'Agm4_Litros'     THEN 12
+                      WHEN 'Agm4_Metros'     THEN 13
+                      WHEN 'Agm4_Unidad'     THEN 14
+                      ELSE 199
+                  END
+              FROM Unit u
+              INNER JOIN UserData ud_u
+                  ON ud_u.id_Father = u.id_Table
+                 AND ud_u.idXml     = u.idXml
+              INNER JOIN UserValue_UserData uuv
+                  ON uuv.id_Father = ud_u.id_Table
+                 AND uuv.idXml     = ud_u.idXml
+              WHERE u.idXml = p.idXml
+                AND uomTagProd.UnitIdTable IS NOT NULL
+                AND u.id_Table = uomTagProd.UnitIdTable
+                AND uuv.title IN ('Agm4_Unidad','Agm4_Kilogramos','Agm4_Litros','Agm4_Metros')
+          ) t
+          WHERE t.UnidadMedida IS NOT NULL AND LTRIM(RTRIM(t.UnidadMedida)) <> ''
+          ORDER BY t.prio
+      ) AS uomUnitProd
+
+      CROSS APPLY (
+          SELECT
+              CASE
+                  WHEN LEFT(p.productId, 1) = 'E'
+                      THEN RIGHT(p.productId, LEN(p.productId) - 1)
+                  ELSE p.productId
+              END AS CodigoNorm
+      ) AS x
+
+      OUTER APPLY (
+          SELECT TOP 1 uvo.value AS bl_formula_val
+          FROM Occurrence o_formula
+          INNER JOIN UserValue_Occurrence uvo
+              ON uvo.id_Father = o_formula.id_Table
+             AND uvo.title = 'bl_formula'
+          WHERE o_formula.instancedRef = Occurrence.instancedRef
+            AND uvo.value IS NOT NULL
+            AND LTRIM(RTRIM(uvo.value)) != ''
+      ) bl_pick
+
+      WHERE
+          (
+              Occurrence.subType = 'MEConsumed'
+              OR (
+                  (Occurrence.subType IS NULL OR LTRIM(RTRIM(Occurrence.subType)) = '')
+                  AND op.id_Table IS NOT NULL
+              )
+          )
+
+      GROUP BY
+          Operation.name,
+          p2.catalogueId,
+          p.name,
+          x.CodigoNorm,
+          pr.subType,
+          pr.revision
+  ) R
+  ORDER BY
+      R.Nivel,
+      R.Codigo_Hijo DESC;
+    ";
+        private const string consultaSB1_BOP_SinWorkArea = @"
+WITH CTE_Hierarchy AS (
 SELECT
-    COALESCE(Parent.name, '')        AS Nombre_Padre,
-    COALESCE(Parent.catalogueId, '') AS Process_codigo,
-    CASE
-        WHEN LEFT(Child.catalogueId, 2) = 'PR'
-            THEN Child.name + ' - Proceso: ' + COALESCE(Parent.catalogueId, '')
-        ELSE Child.name
-    END AS Nombre_Hijo,
-    cod1.CodigoHijoProtheus AS Codigo_Hijo,
-    Child.subType      AS Subtype_Hijo,
-    Child.revision     AS Revision,
-    1                  AS CantidadHijo_Total,
-    nChild.Nivel       AS Nivel,
-    CASE
-        WHEN LEFT(cod1.CodigoHijoProtheus, 2) = 'PR'
-         AND RIGHT(cod1.CodigoHijoProtheus, 1) = 'T'
-            THEN 'SV'
-        WHEN Child.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
-            THEN 'MP'
-        WHEN LEFT(Child.catalogueId, 2) = 'PR'
-            THEN 'PI'
-        ELSE 'PA'
-    END AS Tipo,
-    Child.unMedida,
-    Child.WorkArea_CatalogueId,
-    Child.WorkArea_Nombre,
-    Child.WorkArea_Revision
-FROM CTE_Niveles nChild
-LEFT JOIN CTE_Niveles  nParent ON nChild.parentRef = nParent.id_Table
-LEFT JOIN CTE_Hierarchy Parent  ON nParent.id_Table = Parent.id_Table
-LEFT JOIN CTE_Hierarchy Child   ON nChild.id_Table  = Child.id_Table
-CROSS APPLY (
-    SELECT
-        CASE
-            WHEN Child.catalogueId IS NOT NULL
-             AND LEFT(Child.catalogueId, 2) = 'PR'
-             AND RIGHT(Child.catalogueId, 1) <> 'T'
-             AND (
-                    Child.WorkArea_CatalogueId = '000465'
-                    OR UPPER(LTRIM(RTRIM(Child.WorkArea_Nombre))) = 'TERCEROS'
-                 )
-                THEN Child.catalogueId + 'T'
-            ELSE Child.catalogueId
-        END AS CodigoHijoProtheus
-) AS cod1
+o.id_Table,
+pr.name,
+CASE
+WHEN LEFT(p.catalogueId, 2) = 'P-'
+THEN RIGHT(p.catalogueId, LEN(p.catalogueId) - 2)
+ELSE p.catalogueId
+END AS catalogueId,
+CAST(o.parentRef AS INT) AS parentRef,
+pr.revision,
+pr.subType,
+o.idXml,
+'PA' AS Tipo,
+'UN' AS unMedida,
+CAST(NULL AS varchar(50)) AS WorkArea_CatalogueId,
+CAST(NULL AS varchar(255)) AS WorkArea_Nombre,
+CAST(NULL AS varchar(20)) AS WorkArea_Revision,
+CAST('' AS NVARCHAR(MAX)) AS bl_formula,
+CAST('' AS NVARCHAR(MAX)) AS idContext
+FROM ProcessOccurrence o
+INNER JOIN ProcessRevision pr ON o.instancedRef = pr.id_Table
+INNER JOIN Process p ON pr.masterRef = p.id_Table
+),
+CTE_Niveles AS (
+SELECT
+h.*,
+0 AS Nivel
+FROM CTE_Hierarchy h
+WHERE h.parentRef IS NULL OR h.parentRef = 0
 
 UNION ALL
 
 SELECT
-    Operation.name   AS Nombre_Padre,
-    p2.catalogueId   AS Process_codigo,
-    CASE
-        WHEN LEFT(x.CodigoNorm, 2) = 'PR'
-            THEN p.name + '- Proceso: ' + COALESCE(p2.catalogueId, '')
-        ELSE p.name
-    END AS Nombre_Hijo,
-    cod2.CodigoHijoProtheus AS Codigo_Hijo,
-    pr.subType   AS Subtype_Hijo,
-    pr.revision  AS Revision,
-    COUNT(p.productId) AS CantidadHijo_Total,
-    3 AS Nivel,
-    CASE
-        WHEN LEFT(cod2.CodigoHijoProtheus, 2) = 'PR'
-         AND RIGHT(cod2.CodigoHijoProtheus, 1) = 'T'
-            THEN 'SV'
-        WHEN pr.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
-            THEN 'MP'
-        WHEN LEFT(x.CodigoNorm, 2) = 'PR'
-            THEN 'PI'
-        ELSE 'PA'
-    END AS Tipo,
-    COALESCE(
-        NULLIF(MAX(
-            CASE
-                WHEN uudUnidad2.title = 'Agm4_Unidad'     THEN uudUnidad2.value
-                WHEN uudUnidad2.title = 'Agm4_Kilogramos' THEN uudUnidad2.value
-                WHEN uudUnidad2.title = 'Agm4_Litros'     THEN uudUnidad2.value
-                WHEN uudUnidad2.title = 'Agm4_Metros'     THEN uudUnidad2.value
-                ELSE NULL
-            END
-        ),''),
-        NULLIF(MAX(uomTagProd.ValueTag),''),
-        MAX(uomUnitProd.UnidadMedida),
-        'UN'
-    ) AS unMedida,
-    waData2.WorkArea_CatalogueId,
-    waData2.WorkArea_Nombre,
-    waData2.WorkArea_Revision
-FROM Occurrence
-INNER JOIN ProductRevision pr ON pr.id_Table = Occurrence.instancedRef
-INNER JOIN Product p          ON p.id_Table  = pr.masterRef
-LEFT JOIN ProcessOccurrence o   ON Occurrence.parentRef = o.id_Table
-LEFT JOIN OperationRevision op  ON op.id_Table = o.instancedRef
-LEFT JOIN Operation            ON Operation.id_Table = op.masterRef
-LEFT JOIN ProcessOccurrence o2  ON o2.id_Table = o.parentRef
-LEFT JOIN ProcessRevision pr2   ON o2.instancedRef = pr2.id_Table
-LEFT JOIN Process p2            ON pr2.masterRef = p2.id_Table
-
-LEFT JOIN Form fUnidad2
-    ON p2.catalogueId = CASE
-        WHEN CHARINDEX('/', fUnidad2.name) > 0
-            THEN LEFT(fUnidad2.name, CHARINDEX('/', fUnidad2.name) - 1)
-        ELSE fUnidad2.name
-    END
-LEFT JOIN UserValue_UserData uudUnidad2
-    ON fUnidad2.id_Table + 9 = uudUnidad2.id_Father
-   AND p2.idXml = uudUnidad2.idXml
-
-OUTER APPLY (
-    SELECT TOP 1 s.ValueTag, s.DataRef, s.UnitIdTable
-    FROM (
-        SELECT
-            uvp.value AS ValueTag,
-            uvp.dataRef AS DataRef,
-            TRY_CONVERT(int, REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(uvp.dataRef)),'#',''),'ID',''),'id','')) AS UnitIdTable,
-            1 AS prio
-        FROM UserValue_Product uvp
-        WHERE uvp.idXml = p.idXml
-          AND uvp.title = 'uom_tag'
-          AND uvp.id_Father = p.id_Table
-
-        UNION ALL
-
-        SELECT
-            uvp2.value,
-            uvp2.dataRef,
-            TRY_CONVERT(int, REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(uvp2.dataRef)),'#',''),'ID',''),'id','')),
-            2
-        FROM UserData udp
-        INNER JOIN UserValue_Product uvp2
-            ON uvp2.id_Father = udp.id_Table
-           AND uvp2.idXml     = udp.idXml
-        WHERE udp.idXml = p.idXml
-          AND udp.id_Father = p.id_Table
-          AND uvp2.title = 'uom_tag'
-    ) s
-    ORDER BY s.prio
-) AS uomTagProd
-
-OUTER APPLY (
-    SELECT TOP 1 t.UnidadMedida
-    FROM (
-        SELECT
-            CASE
-                WHEN uvu.title = 'Agm4_Kilogramos' THEN uvu.value
-                WHEN uvu.title = 'Agm4_Litros'     THEN uvu.value
-                WHEN uvu.title = 'Agm4_Metros'     THEN uvu.value
-                WHEN uvu.title = 'Agm4_Unidad'     THEN uvu.value
-                ELSE NULL
-            END AS UnidadMedida,
-            CASE uvu.title
-                WHEN 'Agm4_Kilogramos' THEN 1
-                WHEN 'Agm4_Litros'     THEN 2
-                WHEN 'Agm4_Metros'     THEN 3
-                WHEN 'Agm4_Unidad'     THEN 4
-                ELSE 99
-            END AS prio
-        FROM Unit u
-        INNER JOIN UserValue_Unit uvu
-            ON uvu.id_Father = u.id_Table
-           AND uvu.idXml     = u.idXml
-        WHERE u.idXml = p.idXml
-          AND uomTagProd.UnitIdTable IS NOT NULL
-          AND u.id_Table = uomTagProd.UnitIdTable
-          AND uvu.title IN ('Agm4_Unidad','Agm4_Kilogramos','Agm4_Litros','Agm4_Metros')
-
-        UNION ALL
-
-        SELECT
-            CASE
-                WHEN uuv.title = 'Agm4_Kilogramos' THEN uuv.value
-                WHEN uuv.title = 'Agm4_Litros'     THEN uuv.value
-                WHEN uuv.title = 'Agm4_Metros'     THEN uuv.value
-                WHEN uuv.title = 'Agm4_Unidad'     THEN uuv.value
-                ELSE NULL
-            END,
-            CASE uuv.title
-                WHEN 'Agm4_Kilogramos' THEN 11
-                WHEN 'Agm4_Litros'     THEN 12
-                WHEN 'Agm4_Metros'     THEN 13
-                WHEN 'Agm4_Unidad'     THEN 14
-                ELSE 199
-            END
-        FROM Unit u
-        INNER JOIN UserData ud_u
-            ON ud_u.id_Father = u.id_Table
-           AND ud_u.idXml     = u.idXml
-        INNER JOIN UserValue_UserData uuv
-            ON uuv.id_Father = ud_u.id_Table
-           AND uuv.idXml     = ud_u.idXml
-        WHERE u.idXml = p.idXml
-          AND uomTagProd.UnitIdTable IS NOT NULL
-          AND u.id_Table = uomTagProd.UnitIdTable
-          AND uuv.title IN ('Agm4_Unidad','Agm4_Kilogramos','Agm4_Litros','Agm4_Metros')
-    ) t
-    WHERE t.UnidadMedida IS NOT NULL AND LTRIM(RTRIM(t.UnidadMedida)) <> ''
-    ORDER BY t.prio
-) AS uomUnitProd
-
-OUTER APPLY (
-    SELECT TOP 1
-        wa.catalogueId AS WorkArea_CatalogueId,
-        wa.name        AS WorkArea_Nombre,
-        war.revision   AS WorkArea_Revision
-    FROM ProcessOccurrence po_wa
-    INNER JOIN Occurrence occ_wa
-        ON occ_wa.parentRef = po_wa.id_Table
-       AND occ_wa.subType   = 'MEWorkArea'
-    INNER JOIN WorkAreaRevision war
-        ON war.id_Table = occ_wa.instancedRef
-    INNER JOIN WorkArea wa
-        ON wa.id_Table = war.masterRef
-    WHERE po_wa.instancedRef = pr2.id_Table
-) AS waData2
-
-CROSS APPLY (
-    SELECT
-        CASE
-            WHEN LEFT(p.productId, 1) = 'E'
-                THEN RIGHT(p.productId, LEN(p.productId) - 1)
-            ELSE p.productId
-        END AS CodigoNorm
-) AS x
-
-CROSS APPLY (
-    SELECT
-        CASE
-            WHEN x.CodigoNorm IS NOT NULL
-             AND LEFT(x.CodigoNorm, 2) = 'PR'
-             AND RIGHT(x.CodigoNorm, 1) <> 'T'
-             AND (
-                    waData2.WorkArea_CatalogueId = '000465'
-                    OR UPPER(LTRIM(RTRIM(waData2.WorkArea_Nombre))) = 'TERCEROS'
-                 )
-                THEN x.CodigoNorm + 'T'
-            ELSE x.CodigoNorm
-        END AS CodigoHijoProtheus
-) AS cod2
-
-WHERE
-    (
-        Occurrence.subType = 'MEConsumed'
-        OR (
-            (Occurrence.subType IS NULL OR LTRIM(RTRIM(Occurrence.subType)) = '')
-            AND op.id_Table IS NOT NULL
-        )
-    )
-
-GROUP BY
-    Operation.name,
-    p2.catalogueId,
-    p.name,
-    x.CodigoNorm,
-    pr.subType,
-    pr.revision,
-    waData2.WorkArea_CatalogueId,
-    waData2.WorkArea_Nombre,
-    waData2.WorkArea_Revision,
-    cod2.CodigoHijoProtheus
-
-ORDER BY
-    Nivel,
-    Codigo_Hijo DESC;
-    ";
-        private const string consultaSB1_BOP_SinWorkArea = @"
-WITH UNIT_VALUES AS (
-    SELECT
-        TRY_CONVERT(BIGINT, u.id_Table) AS UnitId,
-        uv.title,
-        uv.value
-    FROM Unit u
-    LEFT JOIN UserValue_Unit uv
-        ON uv.id_Father = u.id_Table
-
-    UNION ALL
-
-    SELECT
-        TRY_CONVERT(BIGINT, u.id_Table) AS UnitId,
-        uv2.title,
-        uv2.value
-    FROM Unit u
-    INNER JOIN UserData ud
-        ON ud.id_Father = u.id_Table
-    INNER JOIN UserValue_UserData uv2
-        ON uv2.id_Father = ud.id_Table
-),
-UNIT_MAP AS (
-    SELECT
-        UnitId,
-        COALESCE(
-            NULLIF(MAX(CASE WHEN title = 'Agm4_Kilogramos' THEN value END), ''),
-            NULLIF(MAX(CASE WHEN title = 'Agm4_Litros'     THEN value END), ''),
-            NULLIF(MAX(CASE WHEN title = 'Agm4_Metros'     THEN value END), ''),
-            NULLIF(MAX(CASE WHEN title = 'Agm4_Unidad'     THEN value END), ''),
-            NULLIF(MAX(CASE WHEN title = 'uom_tag'         THEN value END), '')
-        ) AS UnidadMedida
-    FROM UNIT_VALUES
-    GROUP BY UnitId
-),
-CTE_Hierarchy AS (
-    SELECT
-        o.id_Table,
-        pr.name,
-        CASE
-            WHEN LEFT(p.catalogueId, 2) = 'P-'
-                THEN RIGHT(p.catalogueId, LEN(p.catalogueId) - 2)
-            ELSE p.catalogueId
-        END AS catalogueId,
-        CAST(o.parentRef AS INT) AS parentRef,
-        pr.revision,
-        pr.subType,
-        o.idXml,
-        'PA' AS Tipo,
-        'UN' AS unMedida,
-        CAST(NULL AS varchar(50))  AS WorkArea_CatalogueId,
-        CAST(NULL AS varchar(255)) AS WorkArea_Nombre,
-        CAST(NULL AS varchar(20))  AS WorkArea_Revision
-    FROM ProcessOccurrence o
-    INNER JOIN ProcessRevision pr ON o.instancedRef = pr.id_Table
-    INNER JOIN Process p          ON pr.masterRef   = p.id_Table
-),
-CTE_Niveles AS (
-    SELECT
-        h.*,
-        0 AS Nivel
-    FROM CTE_Hierarchy h
-    WHERE h.parentRef IS NULL OR h.parentRef = 0
-
-    UNION ALL
-
-    SELECT
-        h.*,
-        n.Nivel + 1
-    FROM CTE_Hierarchy h
-    INNER JOIN CTE_Niveles n ON h.parentRef = n.id_Table
+h.*,
+n.Nivel + 1
+FROM CTE_Hierarchy h
+INNER JOIN CTE_Niveles n ON h.parentRef = n.id_Table
 )
 SELECT *
 FROM (
-    SELECT
-        COALESCE(Parent.name, '')        AS Nombre_Padre,
-        COALESCE(Parent.catalogueId, '') AS Process_codigo,
-        CASE
-            WHEN LEFT(Child.catalogueId, 2) = 'PR'
-                THEN Child.name + ' - Proceso: ' + COALESCE(Parent.catalogueId, '')
-            ELSE Child.name
-        END AS Nombre_Hijo,
-        Child.catalogueId  AS Codigo_Hijo,
-        Child.subType      AS Subtype_Hijo,
-        Child.revision     AS Revision,
-        1                  AS CantidadHijo_Total,
-        nChild.Nivel       AS Nivel,
-        CASE
-            WHEN LEFT(Child.catalogueId, 2) = 'PR'
-             AND RIGHT(Child.catalogueId, 1) = 'T'
-                THEN 'SV'
-            WHEN Child.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
-                THEN 'MP'
-            WHEN LEFT(Child.catalogueId, 2) = 'PR'
-                THEN 'PI'
-            ELSE 'PA'
-        END AS Tipo,
-        Child.unMedida,
-        Child.WorkArea_CatalogueId,
-        Child.WorkArea_Nombre,
-        Child.WorkArea_Revision
-    FROM CTE_Niveles nChild
-    LEFT JOIN CTE_Niveles   nParent ON nChild.parentRef = nParent.id_Table
-    LEFT JOIN CTE_Hierarchy Parent  ON nParent.id_Table = Parent.id_Table
-    LEFT JOIN CTE_Hierarchy Child   ON nChild.id_Table  = Child.id_Table
+SELECT
+COALESCE(Parent.name, '') AS Nombre_Padre,
+COALESCE(Parent.catalogueId, '') AS Process_codigo,
+CASE
+WHEN LEFT(Child.catalogueId, 2) = 'PR'
+THEN Child.name + ' - Proceso: ' + COALESCE(Parent.catalogueId, '')
+ELSE Child.name
+END AS Nombre_Hijo,
+Child.catalogueId AS Codigo_Hijo,
+Child.subType AS Subtype_Hijo,
+Child.revision AS Revision,
+1 AS CantidadHijo_Total,
+nChild.Nivel AS Nivel,
+CASE
+WHEN LEFT(Child.catalogueId, 2) = 'PR'
+AND RIGHT(Child.catalogueId, 1) = 'T'
+THEN 'SV'
+WHEN Child.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
+THEN 'MP'
+WHEN LEFT(Child.catalogueId, 2) = 'PR'
+THEN 'PI'
+ELSE 'PA'
+END AS Tipo,
+Child.unMedida,
+Child.WorkArea_CatalogueId,
+Child.WorkArea_Nombre,
+Child.WorkArea_Revision,
+Child.bl_formula,
+Child.idContext
+FROM CTE_Niveles nChild
+LEFT JOIN CTE_Niveles nParent ON nChild.parentRef = nParent.id_Table
+LEFT JOIN CTE_Hierarchy Parent ON nParent.id_Table = Parent.id_Table
+LEFT JOIN CTE_Hierarchy Child ON nChild.id_Table = Child.id_Table
 
-    UNION ALL
+UNION ALL
 
-    SELECT
-        Operation.name   AS Nombre_Padre,
-        p2.catalogueId   AS Process_codigo,
-        CASE
-            WHEN LEFT(x.CodigoNorm, 2) = 'PR'
-                THEN p.name + '- Proceso: ' + COALESCE(p2.catalogueId, '')
-            ELSE p.name
-        END AS Nombre_Hijo,
-        x.CodigoNorm AS Codigo_Hijo,
-        pr.subType   AS Subtype_Hijo,
-        pr.revision  AS Revision,
-        COUNT(p.productId) AS CantidadHijo_Total,
-        3 AS Nivel,
-        CASE
-            WHEN LEFT(x.CodigoNorm, 2) = 'PR'
-             AND RIGHT(x.CodigoNorm, 1) = 'T'
-                THEN 'SV'
-            WHEN pr.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
-                THEN 'MP'
-            WHEN LEFT(x.CodigoNorm, 2) = 'PR'
-                THEN 'PI'
-            ELSE 'PA'
-        END AS Tipo,
-        COALESCE(NULLIF(MAX(um.UnidadMedida), ''), 'UN') AS unMedida,
-        CAST(NULL AS varchar(50))  AS WorkArea_CatalogueId,
-        CAST(NULL AS varchar(255)) AS WorkArea_Nombre,
-        CAST(NULL AS varchar(20))  AS WorkArea_Revision
-    FROM Occurrence
-    INNER JOIN ProductRevision pr ON pr.id_Table = Occurrence.instancedRef
-    INNER JOIN Product p          ON p.id_Table  = pr.masterRef
+SELECT
+Operation.name AS Nombre_Padre,
+p2.catalogueId AS Process_codigo,
+CASE
+WHEN LEFT(x.CodigoNorm, 2) = 'PR'
+THEN p.name + '- Proceso: ' + COALESCE(p2.catalogueId, '')
+ELSE p.name
+END AS Nombre_Hijo,
+x.CodigoNorm AS Codigo_Hijo,
+pr.subType AS Subtype_Hijo,
+pr.revision AS Revision,
+COUNT(p.productId) AS CantidadHijo_Total,
+3 AS Nivel,
+CASE
+WHEN LEFT(x.CodigoNorm, 2) = 'PR'
+AND RIGHT(x.CodigoNorm, 1) = 'T'
+THEN 'SV'
+WHEN pr.subType IN ('Agm4_RepCompradoRevision','Agm4_MatPrimaRevision')
+THEN 'MP'
+WHEN LEFT(x.CodigoNorm, 2) = 'PR'
+THEN 'PI'
+ELSE 'PA'
+END AS Tipo,
+COALESCE(
+NULLIF(MAX(uomTagProd.ValueTag), ''),
+MAX(uomUnitProd.UnidadMedida),
+'UN'
+) AS unMedida,
+CAST(NULL AS varchar(50)) AS WorkArea_CatalogueId,
+CAST(NULL AS varchar(255)) AS WorkArea_Nombre,
+CAST(NULL AS varchar(20)) AS WorkArea_Revision,
+ISNULL(MAX(bl_pick.bl_formula_val), '') AS bl_formula,
+MAX(CASE
+    WHEN ISNULL(bl_pick.bl_formula_val, '') != ''
+     AND CHARINDEX('[''', bl_pick.bl_formula_val) > 0
+     AND CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val)) > 0
+    THEN SUBSTRING(
+            bl_pick.bl_formula_val,
+            CHARINDEX('[''', bl_pick.bl_formula_val) + 2,
+            CHARINDEX(''']', bl_pick.bl_formula_val, CHARINDEX('[''', bl_pick.bl_formula_val))
+              - CHARINDEX('[''', bl_pick.bl_formula_val) - 2)
+    ELSE ''
+END) AS idContext
+FROM Occurrence
+INNER JOIN ProductRevision pr ON pr.id_Table = Occurrence.instancedRef
+INNER JOIN Product p ON p.id_Table = pr.masterRef
 
-    LEFT JOIN ProcessOccurrence o   ON Occurrence.parentRef = o.id_Table
-    LEFT JOIN OperationRevision op  ON op.id_Table = o.instancedRef
-    LEFT JOIN Operation            ON Operation.id_Table = op.masterRef
+LEFT JOIN ProcessOccurrence o ON Occurrence.parentRef = o.id_Table
+LEFT JOIN OperationRevision op ON op.id_Table = o.instancedRef
+LEFT JOIN Operation ON Operation.id_Table = op.masterRef
 
-    LEFT JOIN ProcessOccurrence o2  ON o2.id_Table = o.parentRef
-    LEFT JOIN ProcessRevision pr2   ON o2.instancedRef = pr2.id_Table
-    LEFT JOIN Process p2            ON pr2.masterRef = p2.id_Table
+LEFT JOIN ProcessOccurrence o2 ON o2.id_Table = o.parentRef
+LEFT JOIN ProcessRevision pr2 ON o2.instancedRef = pr2.id_Table
+LEFT JOIN Process p2 ON pr2.masterRef = p2.id_Table
 
-    OUTER APPLY (
-        SELECT TOP 1
-            TRY_CONVERT(BIGINT, REPLACE(REPLACE(si.unitRef,'#',''),'id','')) AS UnitId
-        FROM SetupInstance si
-        WHERE si.id_Table = TRY_CONVERT(BIGINT, REPLACE(REPLACE(Occurrence.instanceRefs,'#',''),'id',''))
-          AND si.unitRef IS NOT NULL
-          AND LTRIM(RTRIM(si.unitRef)) <> ''
-    ) unitPick
+OUTER APPLY (
+SELECT TOP 1 s.ValueTag, s.DataRef, s.UnitIdTable
+FROM (
+SELECT
+uvp.value AS ValueTag,
+uvp.dataRef AS DataRef,
+TRY_CONVERT(int, REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(uvp.dataRef)),'#',''),'ID',''),'id','')) AS UnitIdTable,
+1 AS prio
+FROM UserValue_Product uvp
+WHERE uvp.idXml = p.idXml
+AND uvp.title = 'uom_tag'
+AND uvp.id_Father = p.id_Table
 
-    LEFT JOIN UNIT_MAP um
-        ON um.UnitId = unitPick.UnitId
+UNION ALL
 
-    CROSS APPLY (
-        SELECT
-            CASE
-                WHEN LEFT(p.productId, 1) = 'E'
-                    THEN RIGHT(p.productId, LEN(p.productId) - 1)
-                ELSE p.productId
-            END AS CodigoNorm
-    ) AS x
+SELECT
+uvp2.value,
+uvp2.dataRef,
+TRY_CONVERT(int, REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(uvp2.dataRef)),'#',''),'ID',''),'id','')),
+2
+FROM UserData udp
+INNER JOIN UserValue_Product uvp2
+ON uvp2.id_Father = udp.id_Table
+AND uvp2.idXml = udp.idXml
+WHERE udp.idXml = p.idXml
+AND udp.id_Father = p.id_Table
+AND uvp2.title = 'uom_tag'
+) s
+ORDER BY s.prio
+) AS uomTagProd
 
-    WHERE
-        (
-            Occurrence.subType = 'MEConsumed'
-            OR (
-                (Occurrence.subType IS NULL OR LTRIM(RTRIM(Occurrence.subType)) = '')
-                AND op.id_Table IS NOT NULL
-            )
-        )
+OUTER APPLY (
+SELECT TOP 1 t.UnidadMedida
+FROM (
+SELECT
+CASE
+WHEN uvu.title = 'Agm4_Kilogramos' THEN uvu.value
+WHEN uvu.title = 'Agm4_Litros' THEN uvu.value
+WHEN uvu.title = 'Agm4_Metros' THEN uvu.value
+WHEN uvu.title = 'Agm4_Unidad' THEN uvu.value
+ELSE NULL
+END AS UnidadMedida,
+CASE uvu.title
+WHEN 'Agm4_Kilogramos' THEN 1
+WHEN 'Agm4_Litros' THEN 2
+WHEN 'Agm4_Metros' THEN 3
+WHEN 'Agm4_Unidad' THEN 4
+ELSE 99
+END AS prio
+FROM Unit u
+INNER JOIN UserValue_Unit uvu
+ON uvu.id_Father = u.id_Table
+AND uvu.idXml = u.idXml
+WHERE u.idXml = p.idXml
+AND uomTagProd.UnitIdTable IS NOT NULL
+AND u.id_Table = uomTagProd.UnitIdTable
+AND uvu.title IN ('Agm4_Unidad','Agm4_Kilogramos','Agm4_Litros','Agm4_Metros')
 
-    GROUP BY
-        Operation.name,
-        p2.catalogueId,
-        p.name,
-        x.CodigoNorm,
-        pr.subType,
-        pr.revision
+UNION ALL
+
+SELECT
+CASE
+WHEN uuv.title = 'Agm4_Kilogramos' THEN uuv.value
+WHEN uuv.title = 'Agm4_Litros' THEN uuv.value
+WHEN uuv.title = 'Agm4_Metros' THEN uuv.value
+WHEN uuv.title = 'Agm4_Unidad' THEN uuv.value
+ELSE NULL
+END,
+CASE uuv.title
+WHEN 'Agm4_Kilogramos' THEN 11
+WHEN 'Agm4_Litros' THEN 12
+WHEN 'Agm4_Metros' THEN 13
+WHEN 'Agm4_Unidad' THEN 14
+ELSE 199
+END
+FROM Unit u
+INNER JOIN UserData ud_u
+ON ud_u.id_Father = u.id_Table
+AND ud_u.idXml = u.idXml
+INNER JOIN UserValue_UserData uuv
+ON uuv.id_Father = ud_u.id_Table
+AND uuv.idXml = ud_u.idXml
+WHERE u.idXml = p.idXml
+AND uomTagProd.UnitIdTable IS NOT NULL
+AND u.id_Table = uomTagProd.UnitIdTable
+AND uuv.title IN ('Agm4_Unidad','Agm4_Kilogramos','Agm4_Litros','Agm4_Metros')
+) t
+WHERE t.UnidadMedida IS NOT NULL AND LTRIM(RTRIM(t.UnidadMedida)) <> ''
+ORDER BY t.prio
+) AS uomUnitProd
+
+CROSS APPLY (
+SELECT
+CASE
+WHEN LEFT(p.productId, 1) = 'E'
+THEN RIGHT(p.productId, LEN(p.productId) - 1)
+ELSE p.productId
+END AS CodigoNorm
+) AS x
+
+OUTER APPLY (
+    SELECT TOP 1 uvo.value AS bl_formula_val
+    FROM Occurrence o_formula
+    INNER JOIN UserValue_Occurrence uvo
+        ON uvo.id_Father = o_formula.id_Table
+       AND uvo.title = 'bl_formula'
+    WHERE o_formula.instancedRef = Occurrence.instancedRef
+      AND uvo.value IS NOT NULL
+      AND LTRIM(RTRIM(uvo.value)) != ''
+) bl_pick
+
+WHERE
+(
+Occurrence.subType = 'MEConsumed'
+OR (
+(Occurrence.subType IS NULL OR LTRIM(RTRIM(Occurrence.subType)) = '')
+AND op.id_Table IS NOT NULL
+)
+)
+
+GROUP BY
+Operation.name,
+p2.catalogueId,
+p.name,
+x.CodigoNorm,
+pr.subType,
+pr.revision
 ) R
 ORDER BY
-    R.Nivel,
-    R.Codigo_Hijo DESC;
-";
+R.Nivel,
+R.Codigo_Hijo DESC;
+    ";
         private static readonly TimeSpan RetryDelay = TimeSpan.FromMinutes(5);
 
         // Reutilizar HttpClient (MUY importante en procesos/servicios)
@@ -970,79 +1264,61 @@ IF OBJECT_ID('dbo.WorkAreaOccurrence','U') IS NULL
 		}
 
 
-		private static string ObtenerConsultaSB1_BOP(SqlConnection connection, out bool usaWorkArea)
+        private static string ObtenerConsultaSB1_BOP(SqlConnection connection, out bool usaWorkArea)
         {
-            usaWorkArea = false;
-
-            bool existeWorkArea = false;
-            bool existeWorkAreaRevision = false;
-            bool hayMEWorkArea = false;
-            bool esWorkAreaNormal = false; // MEWorkArea -> WorkAreaRevision
-
             static bool ScalarTrue(object? o) => o != null && o != DBNull.Value;
 
-            // ¿Existen las tablas?
-            using (var cmd = new SqlCommand("SELECT OBJECT_ID('WorkArea', 'U');", connection))
-                existeWorkArea = ScalarTrue(cmd.ExecuteScalar());
+            bool tieneSubTypeEnOccurrence;
 
-            using (var cmd = new SqlCommand("SELECT OBJECT_ID('WorkAreaRevision', 'U');", connection))
-                existeWorkAreaRevision = ScalarTrue(cmd.ExecuteScalar());
-
-            if (!existeWorkArea || !existeWorkAreaRevision)
+            using (var cmd = new SqlCommand(@"
+        IF COL_LENGTH('Occurrence', 'subType') IS NOT NULL
+        AND EXISTS (
+            SELECT 1
+            FROM Occurrence
+            WHERE subType = 'MEWorkarea'
+        )
+        SELECT 1;", connection))
             {
-                Utilidades.EscribirEnLog($"SB1 -> ObtenerConsultaSB1_BOP: WorkArea={existeWorkArea}, WorkAreaRevision={existeWorkAreaRevision}. Se elige SIN WorkArea.");
+                tieneSubTypeEnOccurrence = ScalarTrue(cmd.ExecuteScalar());
+            }
+
+            if (tieneSubTypeEnOccurrence)
+            {
+                usaWorkArea = true;
+
+                Utilidades.EscribirEnLog(
+                    "SB1 -> ObtenerConsultaSB1_BOP: Occurrence.subType presente → 1 WorkArea. Query=Con1Workarea.");
+
+                return consultaSB1_BOP_Con1Workarea;
+            }
+
+            bool tieneWorkAreaOccurrence;
+
+            using (var cmd = new SqlCommand(@"
+        IF COL_LENGTH('WorkAreaOccurrence', 'subType') IS NOT NULL
+            EXEC('IF EXISTS (SELECT 1 FROM WorkAreaOccurrence WHERE subType = ''MEWorkarea'') SELECT 1');", connection))
+            {
+                tieneWorkAreaOccurrence = ScalarTrue(cmd.ExecuteScalar());
+            }
+
+            if (tieneWorkAreaOccurrence)
+            {
+                usaWorkArea = true;
+
+                Utilidades.EscribirEnLog(
+                    "SB1 -> ObtenerConsultaSB1_BOP: WorkAreaOccurrence con subType=MEWorkarea → múltiples WorkAreas. Query=ConMasWorkareas.");
+
+                return consultaSB1_BOP_ConMasWorkareas;
+            }
+            else
+            {
+                usaWorkArea = false;
+
+                Utilidades.EscribirEnLog(
+                    "SB1 -> ObtenerConsultaSB1_BOP: Sin WorkArea → Query=SinWorkArea.");
+
                 return consultaSB1_BOP_SinWorkArea;
             }
-
-            // ¿Hay nodos MEWorkArea en esta BD?
-            using (var cmd = new SqlCommand(@"
-        SELECT TOP 1 1
-        FROM Occurrence o
-        WHERE o.subType IN ('MEWorkArea','MEWorkarea');", connection))
-            {
-                hayMEWorkArea = ScalarTrue(cmd.ExecuteScalar());
-            }
-
-            if (!hayMEWorkArea)
-            {
-                Utilidades.EscribirEnLog("SB1 -> ObtenerConsultaSB1_BOP: No hay Occurrence MEWorkArea. Se elige SIN WorkArea.");
-                bool existeSetupInstance = false;
-                using (var cmd = new SqlCommand("SELECT OBJECT_ID('SetupInstance', 'U');", connection))
-                    existeSetupInstance = ScalarTrue(cmd.ExecuteScalar());
-                if (!existeSetupInstance)
-                {
-                    Utilidades.EscribirEnLog("SB1 -> ObtenerConsultaSB1_BOP: SetupInstance no existe, se omite lookup de unidad.");
-                    return consultaSB1_BOP_SinWorkArea.Replace(
-                        @"OUTER APPLY (
-        SELECT TOP 1
-            TRY_CONVERT(BIGINT, REPLACE(REPLACE(si.unitRef,'#',''),'id','')) AS UnitId
-        FROM SetupInstance si
-        WHERE si.id_Table = TRY_CONVERT(BIGINT, REPLACE(REPLACE(Occurrence.instanceRefs,'#',''),'id',''))
-          AND si.unitRef IS NOT NULL
-          AND LTRIM(RTRIM(si.unitRef)) <> ''
-    ) unitPick",
-                        "OUTER APPLY (SELECT CAST(NULL AS BIGINT) AS UnitId) unitPick");
-                }
-                return consultaSB1_BOP_SinWorkArea;
-            }
-
-            // Caso normal: MEWorkArea apunta a WorkAreaRevision
-            using (var cmd = new SqlCommand(@"
-        SELECT TOP 1 1
-        FROM Occurrence o
-        JOIN WorkAreaRevision war ON war.id_Table = o.instancedRef
-        WHERE o.subType IN ('MEWorkArea','MEWorkarea');", connection))
-            {
-                esWorkAreaNormal = ScalarTrue(cmd.ExecuteScalar());
-            }
-
-            usaWorkArea = esWorkAreaNormal;
-
-            Utilidades.EscribirEnLog(
-                $"SB1 -> ObtenerConsultaSB1_BOP: existeWA={existeWorkArea}, existeWAR={existeWorkAreaRevision}, hayMEWorkArea={hayMEWorkArea}, normal={esWorkAreaNormal}. " +
-                $"Query={(esWorkAreaNormal ? "CON WorkArea" : "SIN WorkArea")}");
-
-            return esWorkAreaNormal ? consultaSB1_BOP_ConWorkArea : consultaSB1_BOP_SinWorkArea;
         }
 
         public static List<string> jsonSB1_BOP()
@@ -1091,6 +1367,7 @@ IF OBJECT_ID('dbo.WorkAreaOccurrence','U') IS NULL
                                 string unMedida = reader["unMedida"]?.ToString() ?? "";
                                 string revision = reader["Revision"]?.ToString() ?? "";
 								string subtype = reader["Subtype_Hijo"]?.ToString() ?? "";
+								string blFormula = reader["bl_formula"]?.ToString() ?? "";
 								string fantasma = CalcularFantasmaDesdeBopPendiente(codigo, subtype, bopDisponibles);
 
 
@@ -1103,9 +1380,7 @@ IF OBJECT_ID('dbo.WorkAreaOccurrence','U') IS NULL
 
                                 metaProductos[codigo] = (descripcion, tipo, unMedida, revision);
 
-                                var producto = new
-                                {
-                                    producto = new List<Dictionary<string, string>>
+                                var camposProducto = new List<Dictionary<string, string>>
                             {
                                 new() { { "campo", "codigo"      }, { "valor", codigo      } },
                                 new() { { "campo", "descripcion" }, { "valor", descripcion } },
@@ -1113,9 +1388,15 @@ IF OBJECT_ID('dbo.WorkAreaOccurrence','U') IS NULL
                                 //new() { { "campo", "deposito"    }, { "valor", deposito    } },
                                 new() { { "campo", "unMedida"    }, { "valor", unMedida    } },
                                 new() { { "campo", "revEstruct"  }, { "valor", revision    } },
-								new() { { "campo", "fantasma" }, { "valor", fantasma } },
+								new() { { "campo", "fantasma"    }, { "valor", fantasma     } },
+							};
 
-							}
+                                if (!string.IsNullOrWhiteSpace(blFormula))
+                                    camposProducto.Add(new() { { "campo", "formula" }, { "valor", blFormula } });
+
+                                var producto = new
+                                {
+                                    producto = camposProducto
 								};
 
                                 string jsonData = JsonConvert.SerializeObject(producto, Formatting.Indented);

@@ -11,11 +11,11 @@ namespace Web_Service
     public static class ProtheusClient
     {
         // Endpoints de negocio (los tuyos)
-        public static string UrlSb1Incluir = "http://119.8.73.193:8096/rest/TCProductos/Incluir/";
-        public static string UrlSb1Modificar = "http://119.8.73.193:8096/rest/TCProductos/Modificar/";
+        public static string UrlSb1Incluir = "http://119.8.73.193:8076/rest/TCProductos/Incluir/";
+        public static string UrlSb1Modificar = "http://119.8.73.193:8076/rest/TCProductos/Modificar/";
 
         // Endpoint health nuevo (el que te habilitaron)
-        public static string UrlHealth = "http://119.8.73.193:8096/rest/TCEstado/Consultar/";
+        public static string UrlHealth = "http://119.8.73.193:8076/rest/TCEstado/Consultar/";
 
         // Body requerido por Protheus en el GET
         private const string HealthBodyJson = "{\"consulta\":\"TeamCenter\"}";
