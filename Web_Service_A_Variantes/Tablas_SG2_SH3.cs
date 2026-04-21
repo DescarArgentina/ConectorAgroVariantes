@@ -697,21 +697,9 @@ namespace Web_Service
             INNER JOIN WorkAreaRevision       AS war ON war.id_Table    = occ1.instancedRef
             INNER JOIN WorkArea               AS wa  ON wa.id_Table     = war.masterRef
 
-            -- Recursos: caso 1 (hijo directo de Occurrence MEWorkArea)
-            --         caso 2 (hijo de WorkAreaOccurrence con misma instancedRef)
-            CROSS APPLY (
-                SELECT o2.instancedRef AS res_instancedRef
-                FROM Occurrence o2
-                WHERE o2.parentRef = occ1.id_Table
-
-                UNION
-
-                SELECT o2.instancedRef
-                FROM WorkAreaOccurrence wao_r
-                INNER JOIN Occurrence o2 ON o2.parentRef = wao_r.id_Table
-                WHERE wao_r.instancedRef = occ1.instancedRef
-            ) rec
-            INNER JOIN ProductRevision prod_rev ON prod_rev.id_Table = rec.res_instancedRef
+            -- Recursos hijos de la WorkArea (vía WorkAreaOccurrence)
+            INNER JOIN Occurrence occ2        ON occ2.parentRef   = occ1.id_Table
+            INNER JOIN ProductRevision prod_rev ON prod_rev.id_Table = occ2.instancedRef
             INNER JOIN Product prod             ON prod.id_Table     = prod_rev.masterRef
 
             -- Operaciones
@@ -913,8 +901,7 @@ WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
 
         public static List<string> jsonSG2_SH3()
         {
-            string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
-            //string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
+            string connectionString = Configuracion.ConnectionString;
 
             List<string> jsonProductos = new List<string>();
             Utilidades.EscribirEnLog("jsonSG2_SH3 -> entrando al método");
@@ -1088,8 +1075,7 @@ WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
 
         public static List<string> jsonSB1_BOP()
         {
-            string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
-            //string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
+            string connectionString = Configuracion.ConnectionString;
             const string schemaPatch = @"
                                         SET NOCOUNT ON;
                                         SET XACT_ABORT ON;

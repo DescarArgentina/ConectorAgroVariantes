@@ -1323,8 +1323,7 @@ IF OBJECT_ID('dbo.WorkAreaOccurrence','U') IS NULL
 
         public static List<string> jsonSB1_BOP()
         {
-            //string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
-            string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+            string connectionString = Configuracion.ConnectionString;
 
             // ✅ Elegir query según compatibilidad del XML/BD (misma lógica que SG1)
             string queryElegida;
@@ -1582,8 +1581,7 @@ IF OBJECT_ID('dbo.WorkAreaOccurrence','U') IS NULL
 		{
 			codigosFantasma = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-			//string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
-			string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+			string connectionString = Configuracion.ConnectionString;
 			string query = @"
 WITH UNIT_VALUES AS (
     SELECT
@@ -1924,11 +1922,7 @@ SELECT b.* FROM Base b ORDER BY b.Codigo_Padre;
 
 		public static void poblarBase(string codigo, string descripcion, string tipo, string deposito, string unMedida, string revision, int estado, string mensaje)
         {
-            //string connectionString = @"Data Source=DEPLM-11-PC\SQLEXPRESS;Initial Catalog=AgrometalBop;
-            //                          Integrated Security=True;TrustServerCertificate=True";
-
-            //string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
-            string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+            string connectionString = Configuracion.ConnectionString;
             string query = "  INSERT INTO SB1 (codigo, descripcion, tipo, deposito, unMedida, revision, estado, mensaje)\r\nSELECT @codigo, @descripcion, @tipo, @deposito, @unMedida, @revision, @estado, @mensaje\r\nWHERE NOT EXISTS (SELECT 1 FROM SB1 WHERE codigo = @codigo)";
             try
             {
@@ -1960,9 +1954,7 @@ SELECT b.* FROM Base b ORDER BY b.Codigo_Padre;
         public static void ActualizarBase(int estado, string mensaje, string codigo, string descripcion)
         {
 
-            //string connectionString = "Server=10.0.0.109,1433;Database=AgrometalBOP;User Id=chaco;Password=Descar_2020;";
-            //string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
-            string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+            string connectionString = Configuracion.ConnectionString;
             string query = @"UPDATE SB1
                           SET estado = @estado, mensaje = @mensaje
                           WHERE codigo = @codigo AND descripcion = @descripcion 

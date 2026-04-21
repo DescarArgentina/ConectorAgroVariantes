@@ -1211,8 +1211,7 @@ ORDER BY
 
 		public static List<string> jsonZG1_BOP()
 		{
-			//string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
-			string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+			string connectionString = Configuracion.ConnectionString;
 
 			Log("[ZG1-JSON][BOP] Iniciando generación de estructuras ZG1 desde BOP...");
 
@@ -1461,8 +1460,7 @@ ORDER BY
 				return new Dictionary<string, List<List<Dictionary<string, string>>>>(StringComparer.OrdinalIgnoreCase);
 			}
 
-			//string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
-			string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+			string connectionString = Configuracion.ConnectionString;
 			Console.WriteLine("[SG1-JSON] Iniciando generación de estructuras SG1 desde SQL...");
 			Utilidades.EscribirEnLog("[SG1-JSON] Iniciando generación de estructuras SG1 desde SQL...");
 
@@ -1900,8 +1898,7 @@ ORDER BY b.Process_codigo;
 
 		public static void poblarBaseSG1(string Nombre_Padre, string Codigo_Padre, string Nombre_Hijo, string Codigo_Hijo, string CantidadHijo)
 		{
-			//string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
-			string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+			string connectionString = Configuracion.ConnectionString;
 			string query = "INSERT INTO SG1 VALUES (@Nombre_Padre, @Codigo_Padre, @Nombre_Hijo, @Codigo_Hijo, @CantidadHijo, NULL, NULL)";
 
 			try
@@ -1929,8 +1926,7 @@ ORDER BY b.Process_codigo;
 
 		public static void ActualizarBase(int estado, string mensaje, string codigo)
 		{
-			//string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
-			string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+			string connectionString = Configuracion.ConnectionString;
 			string query = @"UPDATE SG1
 SET estado = @estado, mensaje = @mensaje
 WHERE Codigo_Padre = @codigo";
@@ -1964,7 +1960,7 @@ WHERE Codigo_Padre = @codigo";
 
 		public static List<string> jsonZG1_MBOM()
 	{
-		string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+		string connectionString = Configuracion.ConnectionString;
 		Log("[ZG1-JSON] Iniciando generación de estructuras ZG1 desde SQL...");
 
 		var listaJsons = new List<string>();

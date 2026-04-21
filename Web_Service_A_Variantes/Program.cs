@@ -120,8 +120,7 @@ namespace Web_Service // Note: actual namespace depends on the project name.
                 Directory.CreateDirectory(bopProcesada);
 
                 // 3) ConnectionString
-                //string connectionString = "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
-                string connectionString = "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
+                string connectionString = Configuracion.ConnectionString;
 
                 // Limpiar SG1 y ZG1 antes de cada corrida
                 using (SqlConnection conn = new SqlConnection(connectionString))
@@ -623,35 +622,25 @@ ORDER BY
                     Console.WriteLine("[BOP] Generando SB1 (productos) desde estructura BOP...");
                     var listaSB1_BOP = Tabla_SB1.jsonSB1_BOP();
                     Console.WriteLine($"[BOP] jsonSB1_BOP() devolvió {listaSB1_BOP.Count} productos.");
-                    // [PRUEBA] Envío desactivado
-                    //foreach (string s in listaSB1_BOP)
-                    //{
-                    //    await Tabla_SB1.postSB1(s);
-                    //}
-                    Console.WriteLine("[PRUEBA] BOP SB1 listo. Presioná ENTER para continuar con SG1...");
-                    Console.ReadLine();
+                    foreach (string s in listaSB1_BOP)
+                    {
+                        await Tabla_SB1.postSB1(s);
+                    }
 
                     // ZG1 BOP (estructuras con variantes)
                     Console.WriteLine("[BOP] Generando ZG1 (estructuras con variantes) desde BOP...");
                     var estructurasZG1_BOP = Tabla_SG1.jsonZG1_BOP();
                     Console.WriteLine($"[BOP] jsonZG1_BOP() devolvió {estructurasZG1_BOP.Count} estructuras.");
-                    // [PRUEBA] Envío desactivado
-                    //await Tabla_SG1.postZG1(estructurasZG1_BOP);
-                    Console.WriteLine("[PRUEBA] BOP ZG1 listo. Presioná ENTER para continuar con SG2/SH3...");
-                    Console.ReadLine();
+                    await Tabla_SG1.postZG1(estructurasZG1_BOP);
 
                     // SG2/SH3 (procesos)
                     Console.WriteLine("[BOP] Generando SG2/SH3 (Procesos Productivos) desde BOP...");
                     var listaSG2 = Tablas_SG2_SH3.jsonSG2_SH3();
                     Console.WriteLine($"[BOP] jsonSG2_SH3() devolvió {listaSG2.Count} JSONs.");
-                    // [PRUEBA] Envío desactivado
-                    //foreach (string s in listaSG2)
-                    //{
-                    //    await Tablas_SG2_SH3.EnviarSG2_SH3(s);
-                    //    Utilidades.EscribirJSONEnLog(s);
-                    //}
-                    Console.WriteLine("[PRUEBA] BOP SG2/SH3 listo. Presioná ENTER para finalizar...");
-                    Console.ReadLine();
+                    foreach (string s in listaSG2)
+                    {
+                        await Tablas_SG2_SH3.EnviarSG2_SH3(s);
+                    }
 
                     // JSONs jerárquicos (igual que antes)
                     Console.WriteLine("\n============================");
@@ -930,22 +919,15 @@ ORDER BY
                         HashSet<string> codigosFantasma;
                         var listaSB1_MBOM = Tabla_SB1.jsonSB1_MBOM(out codigosFantasma);
                         Console.WriteLine($"[MBOM] jsonSB1() devolvió {listaSB1_MBOM.Count} productos. Fantasmas={codigosFantasma.Count}");
-                        // [PRUEBA] Envío desactivado
-                        //foreach (string s in listaSB1_MBOM)
-                        //{
-                        //    Console.WriteLine("[MBOM] Enviando producto SB1 a Totvs...");
-                        //    await Tabla_SB1.postSB1(s);
-                        //}
-                        Console.WriteLine("[PRUEBA] MBOM SB1 listo. Presioná ENTER para continuar con ZG1...");
-                        Console.ReadLine();
+                        foreach (string s in listaSB1_MBOM)
+                        {
+                            await Tabla_SB1.postSB1(s);
+                        }
 
                         Console.WriteLine("[MBOM] Generando ZG1 (estructuras con variantes)...");
                         var listaZG1 = Tabla_SG1.jsonZG1_MBOM();
                         Console.WriteLine($"[MBOM] jsonZG1() generó {listaZG1.Count} JSONs de estructura con variantes.");
-                        // [PRUEBA] Envío desactivado
-                        //await Tabla_SG1.postZG1(listaZG1);
-                        Console.WriteLine("[PRUEBA] MBOM ZG1 listo. Presioná ENTER para continuar con BOP...");
-                        Console.ReadLine();
+                        await Tabla_SG1.postZG1(listaZG1);
                     }
 
                     // Mover procesado (igual que antes)
