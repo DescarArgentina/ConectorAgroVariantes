@@ -9,8 +9,8 @@ namespace Web_Service
         public static readonly string ConnectionString =
             "Server=PC-18;Database=AgroVariantes;Integrated Security=true;";
 
-        // Producción (servidor 10.0.0.82)
+        // Producción (SRV-TEAMCENTER)
         //public static readonly string ConnectionString =
-        //    "Server=10.0.0.82;Database=AgrometalBOP;User Id=sa;Password=Descar_2020;";
+        //    "Server=SRV-TEAMCENTER;Database=MBOM-BOP_Agrometal;User Id=infodba;Password=infodba;";
     }
 }

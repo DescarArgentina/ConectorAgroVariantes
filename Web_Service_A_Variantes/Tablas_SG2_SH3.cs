@@ -626,51 +626,50 @@ namespace Web_Service
 
         //Consulta con Workarea y recurso hijo
         private const string consultaD_workarea_recurso = @"SELECT
-            p.catalogueId AS Padre,
-            p.name AS descripcion,
+            p.catalogueId  AS Padre,
+            p.name         AS descripcion,
             wa.catalogueId AS centroTrabajo,
             prod.productId AS recurso,
-            op.catalogueId AS Operacion,
-            ta.allocated_time_centesimal AS allocated_time_centesimal,
+            ISNULL(SUM(CAST(ta.allocated_time_centesimal AS FLOAT)), 0) AS allocated_time_centesimal,
             ROW_NUMBER() OVER (
-            PARTITION BY p.catalogueId, op.catalogueId, wa.catalogueId
-            ORDER BY prod.productId
+                PARTITION BY p.catalogueId, wa.catalogueId
+                ORDER BY prod.productId
             ) AS nro_recurso
             FROM ProcessRevision AS pr
             INNER JOIN Process AS p
-            ON p.id_Table = pr.masterRef
+                ON p.id_Table = pr.masterRef
             INNER JOIN ProcessOccurrence AS po
-            ON po.instancedRef = pr.id_Table
+                ON po.instancedRef = pr.id_Table
             INNER JOIN WorkAreaOccurrence AS occ1
-            ON occ1.parentRef = po.id_Table
-            AND occ1.subType IN ('MEWorkArea','MEWorkarea')
+                ON occ1.parentRef = po.id_Table
+               AND occ1.subType IN ('MEWorkArea','MEWorkarea')
             INNER JOIN WorkAreaRevision AS war
-            ON war.id_Table = occ1.instancedRef
+                ON war.id_Table = occ1.instancedRef
             INNER JOIN WorkArea AS wa
-            ON wa.id_Table = war.masterRef
+                ON wa.id_Table = war.masterRef
             INNER JOIN Occurrence AS occ2
-            ON occ2.parentRef = occ1.id_Table
+                ON occ2.parentRef = occ1.id_Table
             INNER JOIN ProductRevision AS prod_rev
-            ON prod_rev.id_Table = occ2.instancedRef
+                ON prod_rev.id_Table = occ2.instancedRef
             INNER JOIN Product AS prod
-            ON prod.id_Table = prod_rev.masterRef
-            LEFT JOIN ProcessOccurrence AS po_op
-            ON po_op.parentRef = po.id_Table
-            LEFT JOIN OperationRevision AS op_rev
-            ON op_rev.id_Table = po_op.instancedRef
-            LEFT JOIN Operation AS op
-            ON op.id_Table = op_rev.masterRef
+                ON prod.id_Table = prod_rev.masterRef
+            INNER JOIN ProcessOccurrence AS po_op
+                ON po_op.parentRef = po.id_Table
+            INNER JOIN OperationRevision AS op_rev
+                ON op_rev.id_Table = po_op.instancedRef
+            INNER JOIN Operation AS op
+                ON op.id_Table = op_rev.masterRef
             OUTER APPLY (
-            SELECT TOP 1
-            uvf.value AS allocated_time_centesimal
-            FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
-            INNER JOIN AssociatedAttachment aa
-            ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
-            AND aa.role = 'METimeAnalysisRelation'
-            INNER JOIN UserValue_Form uvf
-            ON uvf.id_Father = RIGHT(aa.attachmentRef, LEN(aa.attachmentRef) - 3)
-            AND uvf.title = 'allocated_time'
+                SELECT ISNULL(SUM(CAST(uvf.value AS FLOAT)), 0) AS allocated_time_centesimal
+                FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
+                INNER JOIN AssociatedAttachment aa
+                    ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
+                   AND aa.role = 'METimeAnalysisRelation'
+                INNER JOIN UserValue_Form uvf
+                    ON uvf.id_Father = RIGHT(aa.attachmentRef, LEN(aa.attachmentRef) - 3)
+                   AND uvf.title = 'allocated_time'
             ) AS ta
+            GROUP BY p.catalogueId, p.name, wa.catalogueId, prod.productId
             ORDER BY RIGHT(p.catalogueId, LEN(p.catalogueId) - 3) DESC";
 
         //Consulta para los xml que vienen sin WorkAreaOccurrence
@@ -679,50 +678,46 @@ namespace Web_Service
                 p.catalogueId   AS Padre,
                 p.name          AS descripcion,
                 wa.catalogueId  AS centroTrabajo,
-                prod.productId  AS recurso, 
-                op.catalogueId  AS Operacion,
-                ta.allocated_time_centesimal AS allocated_time_centesimal,
+                prod.productId  AS recurso,
+                ISNULL(SUM(CAST(ta.allocated_time_centesimal AS FLOAT)), 0) AS allocated_time_centesimal,
                 ROW_NUMBER() OVER (
-                    PARTITION BY p.catalogueId, op.catalogueId, wa.catalogueId
+                    PARTITION BY p.catalogueId, wa.catalogueId
                     ORDER BY prod.productId
                 ) AS nro_recurso
             FROM ProcessRevision        AS pr
-            INNER JOIN Process                AS p   ON p.id_Table  = pr.masterRef
-            INNER JOIN ProcessOccurrence      AS po  ON po.instancedRef = pr.id_Table
+            INNER JOIN Process          AS p   ON p.id_Table      = pr.masterRef
+            INNER JOIN ProcessOccurrence AS po ON po.instancedRef = pr.id_Table
 
             -- WorkArea
-            INNER JOIN Occurrence             AS occ1 
+            INNER JOIN Occurrence        AS occ1
                     ON occ1.parentRef = po.id_Table
                    AND occ1.subType   IN ('MEWorkArea','MEWorkarea')
-            INNER JOIN WorkAreaRevision       AS war ON war.id_Table    = occ1.instancedRef
-            INNER JOIN WorkArea               AS wa  ON wa.id_Table     = war.masterRef
+            INNER JOIN WorkAreaRevision  AS war ON war.id_Table = occ1.instancedRef
+            INNER JOIN WorkArea          AS wa  ON wa.id_Table  = war.masterRef
 
-            -- Recursos hijos de la WorkArea (vía WorkAreaOccurrence)
-            INNER JOIN Occurrence occ2        ON occ2.parentRef   = occ1.id_Table
-            INNER JOIN ProductRevision prod_rev ON prod_rev.id_Table = occ2.instancedRef
-            INNER JOIN Product prod             ON prod.id_Table     = prod_rev.masterRef
+            -- Recursos hijos de la WorkArea
+            INNER JOIN Occurrence        AS occ2     ON occ2.parentRef    = occ1.id_Table
+            INNER JOIN ProductRevision   AS prod_rev ON prod_rev.id_Table = occ2.instancedRef
+            INNER JOIN Product           AS prod     ON prod.id_Table     = prod_rev.masterRef
 
-            -- Operaciones
-            LEFT JOIN ProcessOccurrence po_op 
-                    ON po_op.parentRef = po.id_Table
-            LEFT JOIN OperationRevision op_rev 
-                    ON op_rev.id_Table = po_op.instancedRef
-            LEFT JOIN Operation op 
-                    ON op.id_Table = op_rev.masterRef
+            -- Operaciones (INNER: solo procesos con operaciones directas)
+            INNER JOIN ProcessOccurrence  AS po_op  ON po_op.parentRef  = po.id_Table
+            INNER JOIN OperationRevision  AS op_rev ON op_rev.id_Table  = po_op.instancedRef
+            INNER JOIN Operation          AS op     ON op.id_Table      = op_rev.masterRef
 
-            --  NUEVO CALCULO
+            -- Tiempo sumado de todas las operaciones
             OUTER APPLY (
-                SELECT TOP 1
-                    uvf.value AS allocated_time_centesimal
+                SELECT ISNULL(SUM(CAST(uvf.value AS FLOAT)), 0) AS allocated_time_centesimal
                 FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
-                INNER JOIN AssociatedAttachment aa 
+                INNER JOIN AssociatedAttachment aa
                     ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
                    AND aa.role = 'METimeAnalysisRelation'
-                INNER JOIN UserValue_Form uvf 
+                INNER JOIN UserValue_Form uvf
                     ON uvf.id_Father = RIGHT(aa.attachmentRef, LEN(aa.attachmentRef) - 3)
                    AND uvf.title = 'allocated_time'
             ) AS ta
 
+            GROUP BY p.catalogueId, p.name, wa.catalogueId, prod.productId
             ORDER BY RIGHT(p.catalogueId, LEN(p.catalogueId) - 3) DESC;
 ";
 
@@ -733,56 +728,29 @@ SELECT
     p.name          AS descripcion,
     NULL            AS centroTrabajo,
     prod.productId  AS recurso,
-
-    ta.allocated_time_centesimal,
-    op.catalogueId  AS Operacion,
-
+    ISNULL(SUM(CAST(ta.allocated_time_centesimal AS FLOAT)), 0) AS allocated_time_centesimal,
     ROW_NUMBER() OVER (
-        PARTITION BY p.catalogueId, op.catalogueId
+        PARTITION BY p.catalogueId
         ORDER BY prod.productId
     ) AS nro_recurso
 
 FROM ProcessRevision        AS pr
-JOIN Process                AS p
-      ON p.id_Table = pr.masterRef
-
--- Proceso / subproceso
-JOIN ProcessOccurrence      AS po
-      ON po.instancedRef = pr.id_Table
+JOIN Process                AS p        ON p.id_Table        = pr.masterRef
+JOIN ProcessOccurrence      AS po       ON po.instancedRef   = pr.id_Table
 
 -- Recursos: hijos directos del PR (sin WorkArea)
-JOIN Occurrence             AS occ2
-      ON occ2.parentRef = po.id_Table
+JOIN Occurrence             AS occ2     ON occ2.parentRef    = po.id_Table
+JOIN ProductRevision        AS prod_rev ON prod_rev.id_Table = occ2.instancedRef
+JOIN Product                AS prod     ON prod.id_Table     = prod_rev.masterRef
 
-JOIN ProductRevision        AS prod_rev
-      ON prod_rev.id_Table = occ2.instancedRef
+-- Operaciones (INNER: solo procesos con operaciones directas)
+INNER JOIN ProcessOccurrence  AS po_op  ON po_op.parentRef  = po.id_Table
+INNER JOIN OperationRevision  AS op_rev ON op_rev.id_Table  = po_op.instancedRef
+INNER JOIN Operation          AS op     ON op.id_Table      = op_rev.masterRef
 
-JOIN Product                AS prod
-      ON prod.id_Table = prod_rev.masterRef
-
--- ❌ ELIMINADO: lógica vieja basada en Form + offsets
-
--- Vista e instancia de proceso (para nro_busqueda)
-INNER JOIN ProcessRevisionView pr_view 
-        ON pr_view.revisionRef = pr.id_Table
-
-INNER JOIN ProcessInstance pr_ins 
-        ON pr_ins.partRef = pr_view.id_Table
-
--- Operaciones
-INNER JOIN ProcessOccurrence po_op 
-        ON po_op.parentRef = po.id_Table
-
-INNER JOIN OperationRevision op_rev 
-        ON op_rev.id_Table = po_op.instancedRef
-
-INNER JOIN Operation op 
-        ON op.id_Table = op_rev.masterRef
-
---  NUEVO CALCULO
+-- Tiempo sumado de todas las operaciones
 OUTER APPLY (
-    SELECT TOP 1
-        uvf.value AS allocated_time_centesimal
+    SELECT ISNULL(SUM(CAST(uvf.value AS FLOAT)), 0) AS allocated_time_centesimal
     FROM STRING_SPLIT(po_op.associatedAttachmentRefs, ' ') s
     INNER JOIN AssociatedAttachment aa
         ON aa.id_Table = RIGHT(s.value, LEN(s.value) - 3)
@@ -792,8 +760,8 @@ OUTER APPLY (
        AND uvf.title = 'allocated_time'
 ) AS ta
 
-ORDER BY
-    TRY_CONVERT(INT, SUBSTRING(p.catalogueId, 4, LEN(p.catalogueId) - 3)) DESC
+GROUP BY p.catalogueId, p.name, prod.productId
+ORDER BY TRY_CONVERT(INT, SUBSTRING(p.catalogueId, 4, LEN(p.catalogueId) - 3)) DESC
 ";
 
         //Consulta para los xml que vienen con WorkArea que apunta directo a ProductRevision
@@ -918,9 +886,9 @@ WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
                     SqlDataReader reader = command.ExecuteReader();
 
                     int filas = 0;
+                    int ultimoPaso = 0;
                     Dictionary<string, dynamic> productosDict = new Dictionary<string, dynamic>();
-                    var procPorProductoOperacion = new Dictionary<string, Procedimiento>();
-                    var ultimoPasoPorProducto = new Dictionary<string, int>();
+                    var procPorProducto = new Dictionary<string, Procedimiento>();
 
                     while (reader.Read())
                     {
@@ -930,10 +898,6 @@ WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
                         string padrePr = reader["Padre"]?.ToString()?.Trim();
                         if (string.IsNullOrWhiteSpace(padrePr))
                             continue;
-
-                        string operacion = reader["Operacion"]?.ToString()?.Trim();
-                        if (string.IsNullOrWhiteSpace(operacion))
-                            continue; // evita keyProc inválida
 
                         string producto = padrePr;
 
@@ -969,7 +933,7 @@ WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
 
                         // OJO: aunque el alias diga "centesimal", acá viene en SEGUNDOS por pieza (XML).
                         string rawSeconds = reader["allocated_time_centesimal"]?.ToString();
-                        var calc = CalcularTiempoYLoteDesdeSegundos(rawSeconds, producto, operacion);
+                        var calc = CalcularTiempoYLoteDesdeSegundos(rawSeconds, producto, nombreOperacion);
 
                         string tiempo = calc.TiempoHHMM;                  // "HH.MM"
                         string lote = calc.LoteStd.ToString(CultureInfo.InvariantCulture);
@@ -977,26 +941,21 @@ WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
                         if (filas <= 3)
                         {
                             Utilidades.EscribirEnLog(
-                                $"jsonSG2_SH3 -> fila {filas}: Padre={padrePr}, recurso={recurso}, op={operacion}, rawSeconds={rawSeconds}, tiempo={tiempo}, lote={lote}, aprox={calc.EsAprox}");
+                                $"jsonSG2_SH3 -> fila {filas}: Padre={padrePr}, recurso={recurso}, op={nombreOperacion}, rawSeconds={rawSeconds}, tiempo={tiempo}, lote={lote}, aprox={calc.EsAprox}");
                         }
 
                         if (calc.EsAprox)
                         {
                             Utilidades.EscribirEnLog(
-                                $"[SG2SH3][TIEMPO] Aprox por límite 99.59 | prod={producto} op={operacion} rawSeconds={rawSeconds} minDec={calc.MinutosDecimalesOriginal} seg={calc.SegundosPorPieza} lote={lote} tiempo={tiempo} err%={calc.ErrorPct:0.0000}");
+                                $"[SG2SH3][TIEMPO] Aprox por límite 99.59 | prod={producto} op={nombreOperacion} rawSeconds={rawSeconds} minDec={calc.MinutosDecimalesOriginal} seg={calc.SegundosPorPieza} lote={lote} tiempo={tiempo} err%={calc.ErrorPct:0.0000}");
                         }
 
                         string codigo = "01";
-                        string keyProc = producto + "_" + operacion;
 
-                        if (!procPorProductoOperacion.ContainsKey(keyProc))
+                        if (!procPorProducto.ContainsKey(producto))
                         {
-                            int operacionActual = 10;
-                            if (ultimoPasoPorProducto.TryGetValue(producto, out var ult))
-                                operacionActual = ult + 10;
-
-                            ultimoPasoPorProducto[producto] = operacionActual;
-                            string operacionPaso = operacionActual.ToString("D2");
+                            ultimoPaso += 10;
+                            string operacionPaso = ultimoPaso.ToString("D2");
 
                             var nuevoProc = new Procedimiento
                             {
@@ -1012,7 +971,7 @@ WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
                                 alternativos = new List<List<CampoValor>>()
                             };
 
-                            procPorProductoOperacion[keyProc] = nuevoProc;
+                            procPorProducto[producto] = nuevoProc;
 
                             if (productosDict.ContainsKey(producto))
                             {
@@ -1029,7 +988,7 @@ WHERE COL_LENGTH('WorkAreaOccurrence','subType') IS NOT NULL;", connection))
                             }
                         }
 
-                        Procedimiento proc = procPorProductoOperacion[keyProc];
+                        Procedimiento proc = procPorProducto[producto];
 
                         if (nroRecurso == 1)
                         {
